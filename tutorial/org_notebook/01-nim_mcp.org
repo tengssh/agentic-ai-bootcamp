@@ -1,0 +1,998 @@
+# -*- mode: org -*-
+# -*- coding: utf-8 -*-
+#+TITLE:       NIM / MCP
+#+AUTHOR:      tengssh
+#+LANGUAGE:    en
+#+STARTUP:     indent
+#+TAGS: Text(T) Code(C) Visualization(V) Protocol(P) noexport(n)
+#+OPTIONS: toc:3
+#+EXPORT_SELECT_TAGS: export
+#+EXPORT_EXCLUDE_TAGS: noexport inlineimages
+#+COLUMNS: %25ITEM %TODO %3PRIORITY %TAGS
+#+PROPERTY: header-args:shell :var SIF_HOME="/containers/" :results output
+
+* Project overview
+This notebook uses materials from the [[https://github.com/klemensnoga/agentic-ai-bootcamp][Github repository]] of the European Agentic AI Bootcamp on using LangGraph, NIM APIs, and the NeMo Agent Toolkit (NAT) for agentic AI applications.
+
+* Resources
+- European Agentic AI Bootcamp
+  - [[https://github.com/klemensnoga/agentic-ai-bootcamp][agentic-ai-bootcamp]]
+- NVIDIA
+  - [[https://docs.nvidia.com/nim/index.html][NVIDIA Inference Microservices (NIM)]]
+    - [[https://build.nvidia.com/meta/llama-3.2-3b-instruct][meta/llama-3.2-3b-instruct]]
+- Model Context Protocol (MCP)
+  - [[https://github.com/jlowin/fastmcp][FastMCP]]
+  - [[https://github.com/modelcontextprotocol/python-sdk][MCP Python SDK]]
+- Asynchronous Server Gateway Interface (ASGI) web server
+  - [[https://github.com/Kludex/uvicorn][uvicorn]]
+  - [[https://github.com/Kludex/starlette][starlette]]
+
+* Journal
+** 2026.07.25 09:12
+*** Environment
+**** Set aliases                                                :noexport:
+#+begin_src shell :session *shell* :results output :exports both
+alias ls='ls --color=none'
+alias pixi='apptainer exec $SIF_HOME/base/utilities_ubuntu.sif pixi'
+pixi --version
+#+end_src
+
+#+RESULTS:
+: pixi 0.73.0
+
+**** Pixi env
+#+begin_src shell :session *shell* :results output :async :exports both
+pixi init 
+pixi add python=3.13
+pixi add --pypi $(cat ../../requirements.txt | grep -v "#" | grep "=")
+#+end_src
+
+#+RESULTS:
+#+begin_example
+✔ Created ./agentic-ai-bootcamp/tutorial/org_notebook/pixi.toml
+✔ Added python=3.13
+WARN The package `nvidia-nat==1.8.0` does not have an extra named `profiling`
+=1.1.1
+=3.1.1
+=1.12.3
+=1.2.12
+=0.3.5
+=1.1.2
+=1.5.0
+=1.5.0
+=1.5.0
+Added these as pypi-dependencies.
+#+end_example
+
+#+begin_src shell :session *shell* :results output :exports both
+pixi add python-dotenv
+#+end_src
+
+#+RESULTS:
+: WARN The package `nvidia-nat==1.8.0` does not have an extra named `profiling`
+: =1.2.2,<2
+
+#+begin_src shell :results output :exports both
+cat pixi.toml
+#+end_src
+
+#+RESULTS:
+#+begin_example
+[workspace]
+channels = ["conda-forge"]
+name = "org_notebook"
+platforms = ["linux-64"]
+version = "0.1.0"
+
+[tasks]
+
+[dependencies]
+python = "3.13.*"
+python-dotenv = ">=1.2.2,<2"
+
+[pypi-dependencies]
+jupyter = ">=1.1.1"
+fastmcp = ">=3.1.1"
+mcp = { version = ">=1.12.3", extras = ["cli"] }
+langchain = ">=1.2.12"
+langchain-nvidia-ai-endpoints = ">=0.3.5"
+langgraph = ">=1.1.2"
+nvidia-nat = { version = ">=1.5.0", extras = ["profiling"] }
+arize-phoenix = ">=13.15.0"
+strictyaml = ">=1.7.3"
+#+end_example
+
+*** Actions
+**** Cloud endpoint                                                 :Code:
+#+begin_src python :results output :session *python* :exports both
+from dotenv import load_dotenv
+load_dotenv()
+import os
+import requests
+import json
+from pprint import pprint
+
+url = "https://integrate.api.nvidia.com/v1/chat/completions"
+
+headers = {
+    "Content-Type": "application/json",
+    "Authorization": f"Bearer {os.environ['NVIDIA_API_KEY']}"
+}
+
+payload = {
+    "model": "meta/llama-3.2-3b-instruct",
+    "messages": [{"role": "system", "content": "What is 2+2?"}],
+    "temperature": 0.6,
+    "top_p": 0.95,
+    "max_tokens": 4096,
+    "frequency_penalty": 0,
+    "presence_penalty": 0,
+    "stream": False
+}
+
+response = requests.post(url, headers=headers, json=payload)
+pprint(response.json())
+#+end_src
+
+#+RESULTS:
+#+begin_example
+{'choices': [{'finish_reason': 'stop',
+              'index': 0,
+              'logprobs': None,
+              'message': {'content': '2 + 2 = 4', 'role': 'assistant'},
+              'stop_reason': None}],
+ 'created': 1784964321,
+ 'id': 'chat-c266da43df2342688599ad75e67718a5',
+ 'model': 'meta/llama-3.2-3b-instruct',
+ 'object': 'chat.completion',
+ 'prompt_logprobs': None,
+ 'usage': {'completion_tokens': 8, 'prompt_tokens': 37, 'total_tokens': 45}}
+#+end_example
+**** Model Context Protocol (MCP) server
+***** Set up high-level MCP server                                 :Text:
+(=C-c C-v t=)
+#+begin_src python :tangle mcp_server.py
+"""
+MCP Server using FastMCP (High-Level SDK)
+This server exposes simple math tools that can be invoked by MCP clients.
+"""
+
+from mcp.server.fastmcp import FastMCP
+
+# Create an MCP server instance with a descriptive name
+mcp = FastMCP("simple-math")
+
+# Define the 'add' tool using the @mcp.tool() decorator
+@mcp.tool()
+def add(a: int, b: int) -> int:
+    """Add two numbers together.
+    
+    Args:
+        a: First integer
+        b: Second integer
+    
+    Returns:
+        Sum of a and b
+    """
+    return a + b
+
+# Define the 'subtract' tool
+@mcp.tool()
+def subtract(a: int, b: int) -> int:
+    """Subtract second number from first.
+    
+    Args:
+        a: First integer
+        b: Second integer
+    
+    Returns:
+        Difference (a - b)
+    """
+    return a - b
+
+# Define the 'multiply' tool
+@mcp.tool()
+def multiply(a: int, b: int) -> int:
+    """Multiply two numbers together.
+    
+    Args:
+        a: First integer
+        b: Second integer
+        
+    Returns:
+        Product of a and b (a * b)
+    """
+    return a * b
+
+# Define the 'divide' tool
+@mcp.tool()
+def divide(a: int, b: int) -> float:
+    """Divide first number by second.
+    
+    Args:
+        a: First integer
+        b: Second integer
+        
+    Returns:
+        Quotient of a divided by b (a / b)
+        
+    Raises:
+        ValueError: If b is zero
+    """
+    if b == 0:
+        raise ValueError("Cannot divide by zero.")
+    return a / b
+
+if __name__ == "__main__":
+    # Run the MCP server with SSE transport over HTTP
+    mcp.run(transport="stdio")
+#+end_src
+***** Run MCP server                                               :Code:
+#+begin_src python :async :results output :session *python* :exports both
+import sys
+import subprocess
+import time
+
+# Start the HTTP server in the background
+server_process = subprocess.Popen(
+    [sys.executable, "mcp_server.py"],
+    stdout=subprocess.DEVNULL,
+    stderr=subprocess.DEVNULL,
+)
+# Wait for server to start
+time.sleep(3)
+
+# Store and display the process ID
+SERVER_PID = server_process.pid
+print(f"Process ID: {SERVER_PID}")
+#+end_src
+
+#+RESULTS:
+: Process ID: 25217
+
+***** Set up MCP client                                            :Text:
+(=C-c C-v t=)
+#+begin_src python :tangle mcp_client.py
+"""
+MCP Client that connects to and invokes tools from MCP servers.
+
+Supports:
+- Stdio transport (for local servers)
+- HTTP transport (for remote/HTTP servers)
+
+Usage:
+    python mcp_client.py                           # Default: mcp_server.py (stdio)
+    python mcp_client.py mcp_server.py             # High-level server (stdio)
+    python mcp_client.py mcp_server_low_level.py   # Low-level server (stdio)
+    python mcp_client.py --http                    # HTTP mode (localhost:${MCP_PORT:-8000})
+    python mcp_client.py --http http://custom:8080/mcp  # Custom HTTP URL
+"""
+import sys
+import asyncio
+import argparse
+import os
+from typing import Optional
+from contextlib import AsyncExitStack
+from mcp import ClientSession, StdioServerParameters
+from mcp.client.stdio import stdio_client
+from mcp.client.streamable_http import streamablehttp_client
+
+DEFAULT_MCP_PORT = os.environ.get("MCP_PORT") or "8000"
+DEFAULT_HTTP_URL = f"http://localhost:{DEFAULT_MCP_PORT}/mcp"
+
+
+class MCPClient:
+    """A client for connecting to MCP servers via Stdio or HTTP transport."""
+    
+    # ===========================================
+    # Step 1: Initialize __init__()
+    # Set up session placeholder and AsyncExitStack for resource management
+    # ===========================================
+    def __init__(self):
+        self.session: Optional[ClientSession] = None
+        self.exit_stack = AsyncExitStack()
+    
+    # ===========================================
+    # Step 2: Define connect_to_server()
+    # Launch and connect to local server via Stdio transport
+    # ===========================================
+    async def connect_to_server(self, server_script_path: str):
+        print(f"→ Connecting to server: {server_script_path}")
+        server_params = StdioServerParameters(
+            command=sys.executable,
+            args=[server_script_path]
+        )
+        stdio_transport = await self.exit_stack.enter_async_context(
+            stdio_client(server_params)
+        )
+        self.stdio, self.write = stdio_transport
+        self.session = await self.exit_stack.enter_async_context(
+            ClientSession(self.stdio, self.write)
+        )
+        await self.session.initialize()
+    
+    # ===========================================
+    # Step 3: Define connect_to_server_http()
+    # Connect to remote server via HTTP transport
+    # ===========================================
+    async def connect_to_server_http(self, url: str):
+        print(f"→ Connecting to HTTP server: {url}")
+        streamablehttp_transport = await self.exit_stack.enter_async_context(
+            streamablehttp_client(url)
+        )
+        self.read, self.write, _ = streamablehttp_transport
+        self.session = await self.exit_stack.enter_async_context(
+            ClientSession(self.read, self.write)
+        )
+        await self.session.initialize()
+    
+    # ===========================================
+    # Step 4: Define list_tools()
+    # Discover available tools from the connected server
+    # ===========================================
+    async def list_tools(self):
+        res_tools = await self.session.list_tools()
+        return res_tools.tools
+    
+    # ===========================================
+    # Step 5: Define call_tool()
+    # Execute a specific tool with arguments
+    # ===========================================
+    async def call_tool(self, tool_name: str, arguments: dict):
+        result = await self.session.call_tool(tool_name, arguments)
+        return result.content[0].text
+    
+    # ===========================================
+    # Step 6: Define cleanup()
+    # Release all resources by closing the AsyncExitStack
+    # ===========================================
+    async def cleanup(self):
+        await self.exit_stack.aclose()
+
+
+async def test_tools(client: MCPClient):
+    """Test the available tools on the connected server."""
+    tools = await client.list_tools()
+    print(f"\n✓ Connected to server with tools: {[tool.name for tool in tools]}")
+    
+    print("\n→ Calling add(2, 3)")
+    result = await client.call_tool('add', {'a': 2, 'b': 3})
+    print(f"  Result: {result}")
+    
+    print("\n→ Calling subtract(7, 4)")
+    result = await client.call_tool('subtract', {'a': 7, 'b': 4})
+    print(f"  Result: {result}")
+
+    print("\n→ Calling multiply(5, 6)")
+    result = await client.call_tool("multiply", {"a": 5, "b": 6})
+    print(f"  Result: {result}")
+
+    print("\n→ Calling divide(10, 2)")
+    result = await client.call_tool("divide", {"a": 10, "b": 2})
+    print(f"  Result: {result}")
+
+    print("\n→ Calling divide(10, 0) - Expecting error")
+    try:
+        result = await client.call_tool("divide", {"a": 10, "b": 0})
+        print(f"  Result: {result}")
+    except Exception as e:
+        print(f"  Caught expected error: {e}")
+
+
+async def main_stdio(server_path: str):
+    """Run client with Stdio transport."""
+    client = MCPClient()
+    try:
+        await client.connect_to_server(server_path)
+        await test_tools(client)
+    finally:
+        await client.cleanup()
+
+
+async def main_http(url: str):
+    """Run client with HTTP transport."""
+    client = MCPClient()
+    try:
+        await client.connect_to_server_http(url)
+        await test_tools(client)
+    finally:
+        await client.cleanup()
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(
+        description="MCP Client - Connect to MCP servers and invoke tools"
+    )
+    parser.add_argument(
+        'server',
+        nargs='?',
+        default='mcp_server.py',
+        help='Path to server script (default: mcp_server.py)'
+    )
+    parser.add_argument(
+        '--http',
+        nargs='?',
+        const=DEFAULT_HTTP_URL,
+        help=f'Use HTTP transport (default URL: {DEFAULT_HTTP_URL})'
+    )
+    
+    args = parser.parse_args()
+    
+    if args.http:
+        url = args.http
+        asyncio.run(main_http(url))
+    else:
+        asyncio.run(main_stdio(args.server))
+#+end_src
+
+***** Run MCP client                                               :Code:
+#+begin_src python :async :results output :session *python* :exports both
+import sys
+import subprocess
+import time
+
+# Start the HTTP server in the background
+server_process = subprocess.Popen(
+    [sys.executable, "mcp_client.py", "mcp_server.py"],
+    stdout=subprocess.PIPE,
+    stderr=subprocess.PIPE,
+    text=True,
+)
+SERVER_PID = server_process.pid
+print(f"Process ID: {SERVER_PID}")
+stdout, stderr = server_process.communicate()
+print(stdout)
+#+end_src
+
+#+RESULTS:
+#+begin_example
+Process ID: 26054
+→ Connecting to server: mcp_server.py
+
+✓ Connected to server with tools: ['add', 'subtract', 'multiply', 'divide']
+
+→ Calling add(2, 3)
+  Result: 5
+
+→ Calling subtract(7, 4)
+  Result: 3
+
+→ Calling multiply(5, 6)
+  Result: 30
+
+→ Calling divide(10, 2)
+  Result: 5.0
+
+→ Calling divide(10, 0) - Expecting error
+  Result: Error executing tool divide: Cannot divide by zero.
+#+end_example
+**** Low-level MCP
+***** Set up low-level MCP server                                 :Text:
+(=C-c C-v t=)
+#+begin_src python :tangle mcp_server_low_level.py
+"""
+Low-Level MCP Server Implementation (Stdio Transport)
+
+This server demonstrates how to build MCP servers with full control
+over tool definitions, input validation, and error handling.
+"""
+
+import asyncio
+import logging
+from typing import Any
+
+from mcp.server import InitializationOptions
+from mcp.server.lowlevel import Server, NotificationOptions
+from mcp.server.stdio import stdio_server
+import mcp.types as types
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger('simple-math')
+
+
+async def main():
+    # ===========================================
+    # Step 1: Create the Server Instance
+    # ===========================================
+    server = Server("simple-math")
+
+    # ===========================================
+    # Step 2: Define Available Tools
+    # ===========================================
+    @server.list_tools()
+    async def handle_list_tools() -> list[types.Tool]:
+        """
+        Returns the name, description, and input schema of all available tools.
+        
+        Each tool requires:
+        - name: Unique identifier for the tool
+        - description: Human-readable description
+        - inputSchema: JSON Schema defining expected arguments
+        """
+        return [
+            types.Tool(
+                name="add",
+                description="Add two numbers together",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "a": {"type": "number", "description": "First number"},
+                        "b": {"type": "number", "description": "Second number"}
+                    },
+                    "required": ["a", "b"],
+                },
+            ),
+            types.Tool(
+                name="subtract",
+                description="Subtract second number from first",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "a": {"type": "number", "description": "First number"},
+                        "b": {"type": "number", "description": "Second number"}
+                    },
+                    "required": ["a", "b"]
+                },
+            ),
+            types.Tool(
+                name="multiply",
+                description="Multiply two numbers together",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "a": {"type": "number", "description": "First number"},
+                        "b": {"type": "number", "description": "Second number"}
+                    },
+                    "required": ["a", "b"]
+                },
+            ),
+            types.Tool(
+                name="divide",
+                description="Divide first number by second",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "a": {"type": "number", "description": "First number"},
+                        "b": {"type": "number", "description": "Second number"}
+                    },
+                    "required": ["a", "b"]
+                },
+            ),
+        ]
+
+    # ===========================================
+    # Step 3: Implement Tool Handlers
+    # ===========================================
+    @server.call_tool()
+    async def handle_call_tool(
+        name: str, arguments: dict[str, Any] | None
+    ) -> list[types.TextContent | types.ImageContent | types.EmbeddedResource]:
+        """
+        Handle tool execution requests.
+        
+        Args:
+            name: The name of the tool to execute
+            arguments: Dictionary of arguments passed to the tool
+            
+        Returns:
+            List of content objects (TextContent, ImageContent, etc.)
+        """
+        try:
+            # Validate arguments exist
+            if not arguments:
+                raise ValueError("No arguments provided")
+            
+            # Handle 'add' tool
+            if name == "add":
+                if "a" not in arguments or "b" not in arguments:
+                    raise ValueError("Missing required arguments: a, b")
+                result = arguments['a'] + arguments['b']
+                return [types.TextContent(type="text", text=str(result))]
+
+            # Handle 'subtract' tool
+            elif name == "subtract":
+                if "a" not in arguments or "b" not in arguments:
+                    raise ValueError("Missing required arguments: a, b")
+                result = arguments['a'] - arguments['b']
+                return [types.TextContent(type="text", text=str(result))]
+            
+            # Handle 'multiply' tool
+            elif name == "multiply":
+                if "a" not in arguments or "b" not in arguments:
+                    raise ValueError("Missing required arguments: a, b")
+                result = arguments["a"] * arguments["b"]
+                return [types.TextContent(type="text", text=str(result))]
+
+            # Handle 'divide' tool
+            elif name == "divide":
+                if "a" not in arguments or "b" not in arguments:
+                    raise ValueError("Missing required arguments: a, b")
+                if arguments["b"] == 0:
+                    raise ValueError("Cannot divide by zero.")
+                result = arguments["a"] / arguments["b"]
+                return [types.TextContent(type="text", text=str(result))]
+
+            else:
+                raise ValueError(f"Unknown tool: {name}")
+                
+        except Exception as e:
+            logger.error(f"Error executing tool '{name}': {e}")
+            return [types.TextContent(type="text", text=f"Error: {str(e)}")]
+
+    # ===========================================
+    # Step 4: Initialize and Run the Server
+    # ===========================================
+    async with stdio_server() as (read_stream, write_stream):
+        logger.info("Server running with stdio transport")
+        await server.run(
+            read_stream,
+            write_stream,
+            InitializationOptions(
+                server_name="simple-math",
+                server_version="0.1.0",
+                capabilities=server.get_capabilities(
+                    notification_options=NotificationOptions(),
+                    experimental_capabilities={},
+                ),
+            ),
+        )
+
+
+# Entry point
+if __name__ == "__main__":
+    asyncio.run(main())
+#+end_src
+***** Run MCP server                                               :Code:
+#+begin_src python :async :results output :session *python* :exports both
+import sys
+import subprocess
+import time
+
+# Start the HTTP server in the background
+server_process = subprocess.Popen(
+    [sys.executable, "mcp_server_low_level.py"],
+    stdout=subprocess.DEVNULL,
+    stderr=subprocess.DEVNULL,
+)
+# Wait for server to start
+time.sleep(3)
+
+# Store and display the process ID
+SERVER_PID = server_process.pid
+print(f"Process ID: {SERVER_PID}")
+#+end_src
+
+#+RESULTS:
+: Process ID: 26261
+
+***** Run MCP client                                               :Code:
+#+begin_src python :async :results output :session *python* :exports both
+import sys
+import subprocess
+import time
+
+# Start the HTTP server in the background
+server_process = subprocess.Popen(
+    [sys.executable, "-u", "mcp_client.py", "mcp_server_low_level.py"],
+    stdout=subprocess.PIPE,
+    stderr=subprocess.PIPE,
+    text=True,
+)
+SERVER_PID = server_process.pid
+print(f"Process ID: {SERVER_PID}")
+stdout, stderr = server_process.communicate()
+print(stdout)
+#+end_src
+
+#+RESULTS:
+#+begin_example
+Process ID: 26940
+→ Connecting to server: mcp_server_low_level.py
+
+✓ Connected to server with tools: ['add', 'subtract', 'multiply', 'divide']
+
+→ Calling add(2, 3)
+  Result: 5
+
+→ Calling subtract(7, 4)
+  Result: 3
+
+→ Calling multiply(5, 6)
+  Result: 30
+
+→ Calling divide(10, 2)
+  Result: 5.0
+
+→ Calling divide(10, 0) - Expecting error
+  Result: Error: Cannot divide by zero.
+#+end_example
+***** HTTP transport
+****** Find available port                                        :Code:
+#+begin_src python :results output :session *python* :exports both
+import os
+import random
+import socket
+
+def find_available_port(start=11000, end=11999):
+    while True:
+        # Randomly select a port between start and end range
+        port = random.randint(start, end)
+        
+        # Try to create a socket and bind to the port
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            try:
+                sock.bind(("localhost", port))
+                # If binding is successful, the port is free
+                return port
+            except OSError:
+                # If binding fails, the port is in use, continue to the next iteration
+                continue
+
+os.environ['MCP_PORT'] = str(find_available_port())
+
+print(f"Available MCP port: {os.environ['MCP_PORT']}")
+#+end_src
+
+#+RESULTS:
+: Available MCP port: 11584
+****** Low-level MCP server via HTTP                              :Text:
+(=C-c C-v t=)
+#+begin_src python :tangle mcp_server_low_level_http.py
+"""
+Low-Level MCP Server Implementation (HTTP Transport)
+
+Uses Starlette + Uvicorn for production-ready HTTP deployment.
+Endpoint: http://localhost:${MCP_PORT:-8000}/mcp
+"""
+
+import asyncio
+import logging
+import os
+import contextlib
+from collections.abc import AsyncIterator
+from typing import Any
+
+from mcp.server import InitializationOptions
+from mcp.server.lowlevel import Server, NotificationOptions
+from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
+from starlette.applications import Starlette
+from starlette.routing import Mount
+from starlette.types import Receive, Scope, Send
+import uvicorn
+import mcp.types as types
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger('simple-math')
+MCP_PORT = int(os.environ.get("MCP_PORT") or "8000")
+
+
+def main():
+    # ===========================================
+    # Step 1: Create the Server Instance
+    # ===========================================
+    server = Server("simple-math")
+
+    # ===========================================
+    # Step 2: Define Available Tools
+    # ===========================================
+    @server.list_tools()
+    async def handle_list_tools() -> list[types.Tool]:
+        """List available tools with their schemas."""
+        return [
+            types.Tool(
+                name="add",
+                description="Add two numbers together",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "a": {"type": "number", "description": "First number"},
+                        "b": {"type": "number", "description": "Second number"}
+                    },
+                    "required": ["a", "b"],
+                },
+            ),
+            types.Tool(
+                name="subtract",
+                description="Subtract second number from first",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "a": {"type": "number", "description": "First number"},
+                        "b": {"type": "number", "description": "Second number"}
+                    },
+                    "required": ["a", "b"]
+                },
+            ),
+            types.Tool(
+                name="multiply",
+                description="Multiply two numbers together",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "a": {"type": "number", "description": "First number"},
+                        "b": {"type": "number", "description": "Second number"}
+                    },
+                    "required": ["a", "b"]
+                },
+            ),
+            types.Tool(
+                name="divide",
+                description="Divide first number by second",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "a": {"type": "number", "description": "First number"},
+                        "b": {"type": "number", "description": "Second number"}
+                    },
+                    "required": ["a", "b"]
+                },
+            ),
+        ]
+
+    # ===========================================
+    # Step 3: Implement Tool Handlers
+    # ===========================================
+    @server.call_tool()
+    async def handle_call_tool(
+        name: str, arguments: dict[str, Any] | None
+    ) -> list[types.TextContent | types.ImageContent | types.EmbeddedResource]:
+        """Handle tool execution requests."""
+        try:
+            if not arguments:
+                raise ValueError("No arguments provided")
+            
+            if name == "add":
+                if "a" not in arguments or "b" not in arguments:
+                    raise ValueError("Missing required arguments: a, b")
+                result = arguments['a'] + arguments['b']
+                return [types.TextContent(type="text", text=str(result))]
+
+            elif name == "subtract":
+                if "a" not in arguments or "b" not in arguments:
+                    raise ValueError("Missing required arguments: a, b")
+                result = arguments['a'] - arguments['b']
+                return [types.TextContent(type="text", text=str(result))]
+            
+            elif name == "multiply":
+                if "a" not in arguments or "b" not in arguments:
+                    raise ValueError("Missing required arguments: a, b")
+                result = arguments['a'] * arguments['b']
+                return [types.TextContent(type="text", text=str(result))]
+
+            elif name == "divide":
+                if "a" not in arguments or "b" not in arguments:
+                    raise ValueError("Missing required arguments: a, b")
+                if arguments['b'] == 0:
+                    raise ValueError("Cannot divide by zero.")
+                result = arguments['a'] / arguments['b']
+                return [types.TextContent(type="text", text=str(result))]
+
+            else:
+                raise ValueError(f"Unknown tool: {name}")
+                
+        except Exception as e:
+            logger.error(f"Error executing tool '{name}': {e}")
+            return [types.TextContent(type="text", text=f"Error: {str(e)}")]
+
+    # ===========================================
+    # Step 4: Configure HTTP Session Manager
+    # ===========================================
+    session_manager = StreamableHTTPSessionManager(
+        app=server,
+        event_store=None,
+        json_response=True,
+        stateless=True,
+    )
+
+    # ===========================================
+    # Step 5: Define Request Handler
+    # ===========================================
+    async def handle_streamable_http(
+        scope: Scope, receive: Receive, send: Send
+    ) -> None:
+        """Handle incoming HTTP requests."""
+        await session_manager.handle_request(scope, receive, send)
+
+    # ===========================================
+    # Step 6: Configure Application Lifecycle
+    # ===========================================
+    @contextlib.asynccontextmanager
+    async def lifespan(app: Starlette) -> AsyncIterator[None]:
+        """Manage application startup and shutdown."""
+        async with session_manager.run():
+            logger.info(f"✓ MCP Server started at http://127.0.0.1:{MCP_PORT}/mcp")
+            try:
+                yield
+            finally:
+                logger.info("✓ MCP Server shutting down...")
+
+    # ===========================================
+    # Step 7: Create and Run ASGI Application
+    # ===========================================
+    starlette_app = Starlette(
+        debug=True,
+        routes=[
+            Mount("/mcp", app=handle_streamable_http),
+        ],
+        lifespan=lifespan,
+    )
+
+    # Start the server
+    uvicorn.run(starlette_app, host="0.0.0.0", port=MCP_PORT)
+
+
+# Entry point
+if __name__ == "__main__":
+    main()
+#+end_src
+****** Run MCP server                                             :Code:
+#+begin_src python :async :results output :session *python* :exports both
+import sys
+import subprocess
+import time
+
+# Start the HTTP server in the background
+server_process = subprocess.Popen(
+    [sys.executable, "mcp_server_low_level_http.py"],
+    stdout=subprocess.DEVNULL,
+    stderr=subprocess.DEVNULL,
+)
+SERVER_PID = server_process.pid
+print(f"Process ID: {SERVER_PID}")
+#+end_src
+
+#+RESULTS:
+: Process ID: 27616
+****** Run MCP client                                             :Code:
+#+begin_src python :async :results output :session *python* :exports both
+import sys
+import subprocess
+import time
+
+# Start the HTTP server in the background
+server_process = subprocess.Popen(
+    [sys.executable, "-u", "mcp_client.py", "--http"],
+    stdout=subprocess.PIPE,
+    stderr=subprocess.PIPE,
+    text=True,
+)
+SERVER_PID = server_process.pid
+print(f"Process ID: {SERVER_PID}")
+stdout, stderr = server_process.communicate()
+print(stdout)
+#+end_src
+
+#+RESULTS:
+#+begin_example
+Process ID: 27682
+→ Connecting to HTTP server: http://localhost:11584/mcp
+
+✓ Connected to server with tools: ['add', 'subtract', 'multiply', 'divide']
+
+→ Calling add(2, 3)
+  Result: 5
+
+→ Calling subtract(7, 4)
+  Result: 3
+
+→ Calling multiply(5, 6)
+  Result: 30
+
+→ Calling divide(10, 2)
+  Result: 5.0
+
+→ Calling divide(10, 0) - Expecting error
+  Result: Error: Cannot divide by zero.
+#+end_example
+*** Milestones                                                       :Text:
+- Access AI models via NVIDIA NIM APIs
+- Use MCP servers
+  - high-level (=FastMCP=)
+  - low-level (=mcp.types.Tool=, ASGI web servers)
+  
+* License
+This work is licensed under a [[https://creativecommons.org/licenses/by/4.0/][CC-BY-4.0]] licence.
+Most codes are adapted from the material, which is released by OpenACC-Standard.org, under the Creative Commons Attribution 4.0 International (CC BY 4.0).
+These materials include references to hardware and software developed by other entities; all applicable licensing and copyrights apply.
