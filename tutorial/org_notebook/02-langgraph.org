@@ -79,7 +79,7 @@ strictyaml = ">=1.7.3"
 #+end_example
 
 *** Action
-**** LangGraph chat models
+**** LangGraph chat models                                          :Code:
 #+begin_src python :results output :session *python* :exports both
 from dotenv import load_dotenv
 load_dotenv()
@@ -128,7 +128,7 @@ for m in models:
 25: id='moonshotai/kimi-k2-thinking' model_type='chat' client='ChatNVIDIA' endpoint=None aliases=None supports_tools=True supports_structured_output=True supports_thinking=False thinking_prefix=None no_thinking_prefix=None thinking_param_enable=None thinking_param_disable=None base_model=None deprecated=False
 26: id='meta/llama-3.1-8b-instruct' model_type='chat' client='ChatNVIDIA' endpoint=None aliases=None supports_tools=True supports_structured_output=True supports_thinking=False thinking_prefix=None no_thinking_prefix=None thinking_param_enable=None thinking_param_disable=None base_model=None deprecated=False
 #+end_example
-**** Create & visualize =StateGraph=
+**** Create & visualize =StateGraph=                    :Code:Visualization:
 #+begin_src python :results graphics file :file langgraph_diagram.png :session *python* :exports both
 class State(TypedDict):
     """
@@ -162,7 +162,7 @@ with open("langgraph_diagram.png", "wb") as f:
 
 #+RESULTS:
 [[file:langgraph_diagram.png]]
-**** Invoke responses
+**** Invoke responses                                               :Code:
 #+begin_src python :results output :session *python* :exports both
 res = graph.invoke({"messages": [{"role": "user", "content": "What is chicago known for?"}]})
 print(res)
@@ -170,7 +170,7 @@ print(res)
 
 #+RESULTS:
 : {'messages': [HumanMessage(content='What is chicago known for?', additional_kwargs={}, response_metadata={}, id='e963d37c-c1e3-4e3e-9dc9-af7f1701f557'), AIMessage(content='Chicago is known for its rich history, vibrant culture, and iconic landmarks. Here are some of the top things Chicago is known for:\n\n1. **Beaches**: Chicago has 26 miles of Lake Michigan shoreline, attracting millions of visitors each year.\n2. **Architecture**: Chicago is famous for its skyscrapers, including the Willis Tower (formerly the Sears Tower), the John Hancock Center, and the Robie House, a UNESCO World Heritage Site.\n3. **Deep-Dish Pizza**: Chicago-style deep-dish pizza is a classic dish that originated in the city. You\'ll find it at classic spots like Lou Malnati\'s, Pequod\'s, and Pizzeria Uno.\n4. **Music**: Chicago is the birthplace of jazz, blues, and electric blues. The city is home to many famous musicians, including Buddy Guy, Muddy Waters, and Etta James.\n5. **Sports**: Chicago is known for its passionate sports fans, with iconic teams like the Chicago Cubs (Wrigley Field), the Chicago White Sox (Guaranteed Rate Field), the Bears (Soldier Field), the Bulls (United Center), and the Blackhawks (United Center).\n6. **Festivals**: Chicago hosts many iconic festivals, including Lollapalooza, Pitchfork Music Festival, and Taste of Chicago.\n7. **Theater**: Chicago is a hub for theater, with the Steppenwolf Theatre Company, the Goodman Theatre, and the Chicago Shakespeare Theater.\n8. **Food**: Chicago is famous for its hot dogs (known as "red hots"), Italian beef sandwiches, and Polish sausage. You\'ll also find excellent ethnic restaurants, including Mexican, Chinese, and Indian cuisine.\n9. **History**: Chicago has a rich history, with landmarks like the Water Tower, the Field Museum (home to Sue, the T. rex skeleton), and the Museum of Science and Industry.\n10. **Ironworkers**: Chicago is known as the "Windy City," but it\'s also earned the nickname "The City That Never Sleeps," given its non-stop activity and construction (like the famous "belmont" steeple on buildings).\n\nThese are just a few things Chicago is known for, but the city has much more to offer!', additional_kwargs={}, response_metadata={'role': 'assistant', 'content': 'Chicago is known for its rich history, vibrant culture, and iconic landmarks. Here are some of the top things Chicago is known for:\n\n1. **Beaches**: Chicago has 26 miles of Lake Michigan shoreline, attracting millions of visitors each year.\n2. **Architecture**: Chicago is famous for its skyscrapers, including the Willis Tower (formerly the Sears Tower), the John Hancock Center, and the Robie House, a UNESCO World Heritage Site.\n3. **Deep-Dish Pizza**: Chicago-style deep-dish pizza is a classic dish that originated in the city. You\'ll find it at classic spots like Lou Malnati\'s, Pequod\'s, and Pizzeria Uno.\n4. **Music**: Chicago is the birthplace of jazz, blues, and electric blues. The city is home to many famous musicians, including Buddy Guy, Muddy Waters, and Etta James.\n5. **Sports**: Chicago is known for its passionate sports fans, with iconic teams like the Chicago Cubs (Wrigley Field), the Chicago White Sox (Guaranteed Rate Field), the Bears (Soldier Field), the Bulls (United Center), and the Blackhawks (United Center).\n6. **Festivals**: Chicago hosts many iconic festivals, including Lollapalooza, Pitchfork Music Festival, and Taste of Chicago.\n7. **Theater**: Chicago is a hub for theater, with the Steppenwolf Theatre Company, the Goodman Theatre, and the Chicago Shakespeare Theater.\n8. **Food**: Chicago is famous for its hot dogs (known as "red hots"), Italian beef sandwiches, and Polish sausage. You\'ll also find excellent ethnic restaurants, including Mexican, Chinese, and Indian cuisine.\n9. **History**: Chicago has a rich history, with landmarks like the Water Tower, the Field Museum (home to Sue, the T. rex skeleton), and the Museum of Science and Industry.\n10. **Ironworkers**: Chicago is known as the "Windy City," but it\'s also earned the nickname "The City That Never Sleeps," given its non-stop activity and construction (like the famous "belmont" steeple on buildings).\n\nThese are just a few things Chicago is known for, but the city has much more to offer!', 'token_usage': {'prompt_tokens': 41, 'total_tokens': 501, 'completion_tokens': 460}, 'finish_reason': 'stop', 'model_name': 'meta/llama-3.2-3b-instruct'}, id='lc_run--019fa00f-4e36-7060-887f-1c0c9d8b8846-0', tool_calls=[], invalid_tool_calls=[], usage_metadata={'input_tokens': 41, 'output_tokens': 460, 'total_tokens': 501}, role='assistant')]}
-**** Stream
+**** Stream                                                         :Code:
 ***** Default mode
 Monitor the outputs in the =*python*= buffer (using =C-x C-b=)
 #+begin_src python :async :results output :session *python* :exports both
@@ -272,7 +272,7 @@ print(f'intent: {res}')
 
 #+RESULTS:
 : intent: intent='naruto'
-**** Memory
+**** Memory                                                         :Code:
 #+begin_src python :results output :session *python* :exports both
 from langgraph.checkpoint.memory import InMemorySaver  
 from langgraph.graph import StateGraph
@@ -442,7 +442,7 @@ GROUP BY c.customer_id, c.name, c.customer_tier
 ORDER BY total_revenue DESC
 LIMIT 10
 #+end_src
-***** Tools & Middleware
+***** Tools & Middleware                                           :Code:
 #+begin_src python :async :results output :session *python* :exports both
 import os
 from dotenv import load_dotenv
