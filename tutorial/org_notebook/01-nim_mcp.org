@@ -14,6 +14,10 @@
 * Project overview
 This notebook uses materials from the [[https://github.com/klemensnoga/agentic-ai-bootcamp][Github repository]] of the European Agentic AI Bootcamp on using LangGraph, NIM APIs, and the NeMo Agent Toolkit (NAT) for agentic AI applications.
 
+This is part 1 of this tutorial. Links to all notebooks can be found below:
+- [[01-nim_mcp.org]]
+- [[02-langgraph.org]]
+
 * Resources
 - European Agentic AI Bootcamp
   - [[https://github.com/klemensnoga/agentic-ai-bootcamp][agentic-ai-bootcamp]]
@@ -994,5 +998,5 @@ Process ID: 27682
   
 * License
 This work is licensed under a [[https://creativecommons.org/licenses/by/4.0/][CC-BY-4.0]] licence.
-Most codes are adapted from the material, which is released by OpenACC-Standard.org, under the Creative Commons Attribution 4.0 International (CC BY 4.0).
+Most of the code was adapted from materials released by OpenACC-Standard.org under the Creative Commons Attribution 4.0 International License (CC BY 4.0).
 These materials include references to hardware and software developed by other entities; all applicable licensing and copyrights apply.
