@@ -1,0 +1,768 @@
+# -*- mode: org -*-
+# -*- coding: utf-8 -*-
+#+TITLE:       LangGraph
+#+AUTHOR:      tengssh
+#+LANGUAGE:    en
+#+STARTUP:     indent
+#+TAGS: Text(T) Code(C) Visualization(V) Protocol(P) noexport(n)
+#+OPTIONS: toc:3
+#+EXPORT_SELECT_TAGS: export
+#+EXPORT_EXCLUDE_TAGS: noexport inlineimages
+#+COLUMNS: %25ITEM %TODO %3PRIORITY %TAGS
+#+PROPERTY: header-args:shell :var SIF_HOME="/containers/" :results output
+
+* Project overview
+This notebook uses materials from the [[https://github.com/klemensnoga/agentic-ai-bootcamp][Github repository]] of the European Agentic AI Bootcamp on using LangGraph, NIM APIs, and the NeMo Agent Toolkit (NAT) for agentic AI applications.
+
+This is part 2 of this tutorial. Links to all notebooks can be found below:
+- [[01-nim_mcp.org]]
+- [[02-langgraph.org]]
+
+* Resources
+- European Agentic AI Bootcamp
+  - [[https://github.com/klemensnoga/agentic-ai-bootcamp]]
+- NVIDIA
+  - [[https://docs.nvidia.com/nim/index.html][NVIDIA Inference Microservices (NIM)]]
+- LangGraph
+  - [[https://docs.langchain.com/oss/python/langgraph/overview][LangGraph overview]]
+  - [[https://github.com/langchain-ai/langgraph]]
+- Pydantic
+  - [[https://pydantic.dev/docs/validation/latest/get-started/][Pydantic - Get Started]]
+  - [[https://github.com/pydantic/pydantic]]
+- Agent skills
+  - [[https://agentskills.io/client-implementation/adding-skills-support][How to add skills support to your agent]]
+  - [[https://agentskills.io/specification][Specification]]
+  - [[https://github.com/agentskills/agentskills]]
+
+* Journal
+** 2026.07.26 21:46
+*** Environment
+**** Set aliases                                                :noexport:
+#+begin_src shell :session *shell* :results output :exports both
+alias ls='ls --color=none'
+alias pixi='apptainer exec $SIF_HOME/base/utilities_ubuntu.sif pixi'
+pixi --version
+#+end_src
+
+#+RESULTS:
+: pixi 0.73.0
+
+**** Pixi env
+#+begin_src shell :results output :exports both
+cat pixi.toml
+#+end_src
+
+#+RESULTS:
+#+begin_example
+[workspace]
+channels = ["conda-forge"]
+name = "org_notebook"
+platforms = ["linux-64"]
+version = "0.1.0"
+
+[tasks]
+
+[dependencies]
+python = "3.13.*"
+python-dotenv = ">=1.2.2,<2"
+
+[pypi-dependencies]
+jupyter = ">=1.1.1"
+fastmcp = ">=3.1.1"
+mcp = { version = ">=1.12.3", extras = ["cli"] }
+langchain = ">=1.2.12"
+langchain-nvidia-ai-endpoints = ">=0.3.5"
+langgraph = ">=1.1.2"
+nvidia-nat = { version = ">=1.5.0", extras = ["profiling"] }
+arize-phoenix = ">=13.15.0"
+strictyaml = ">=1.7.3"
+#+end_example
+
+*** Action
+**** LangGraph chat models
+#+begin_src python :results output :session *python* :exports both
+from dotenv import load_dotenv
+load_dotenv()
+from typing import Annotated
+from typing_extensions import TypedDict
+from langgraph.graph import StateGraph, START
+from langgraph.graph.message import add_messages
+from langchain.chat_models import init_chat_model
+
+MODEL_ID = 'meta/llama-3.2-3b-instruct'
+llm = init_chat_model(model=MODEL_ID, model_provider="nvidia", max_tokens=1024, timeout=300)
+models = llm.get_available_models()
+i = 1
+for m in models:
+    if m.deprecated == False and m.supports_structured_output == True:
+        print(f'{i}: {m}')
+        i += 1
+#+end_src
+
+#+RESULTS:
+#+begin_example
+1: id='nvidia/nvidia-nemotron-nano-9b-v2' model_type='chat' client='ChatNVIDIA' endpoint=None aliases=None supports_tools=True supports_structured_output=True supports_thinking=True thinking_prefix='/think' no_thinking_prefix='/no_think' thinking_param_enable=None thinking_param_disable=None base_model=None deprecated=False
+2: id='nvidia/nemotron-3-super-120b-a12b' model_type='chat' client='ChatNVIDIA' endpoint=None aliases=None supports_tools=True supports_structured_output=True supports_thinking=True thinking_prefix=None no_thinking_prefix=None thinking_param_enable={'chat_template_kwargs': {'enable_thinking': True}} thinking_param_disable={'chat_template_kwargs': {'enable_thinking': False}} base_model=None deprecated=False
+3: id='bytedance/seed-oss-36b-instruct' model_type='chat' client='ChatNVIDIA' endpoint=None aliases=None supports_tools=True supports_structured_output=True supports_thinking=False thinking_prefix=None no_thinking_prefix=None thinking_param_enable=None thinking_param_disable=None base_model=None deprecated=False
+4: id='openai/gpt-oss-20b' model_type='chat' client='ChatNVIDIA' endpoint=None aliases=None supports_tools=True supports_structured_output=True supports_thinking=False thinking_prefix=None no_thinking_prefix=None thinking_param_enable=None thinking_param_disable=None base_model=None deprecated=False
+5: id='stepfun-ai/step-3.5-flash' model_type='chat' client='ChatNVIDIA' endpoint=None aliases=None supports_tools=True supports_structured_output=True supports_thinking=False thinking_prefix=None no_thinking_prefix=None thinking_param_enable=None thinking_param_disable=None base_model=None deprecated=False
+6: id='mistralai/codestral-22b-instruct-v0.1' model_type='chat' client='ChatNVIDIA' endpoint=None aliases=['ai-codestral-22b-instruct-v01'] supports_tools=False supports_structured_output=True supports_thinking=False thinking_prefix=None no_thinking_prefix=None thinking_param_enable=None thinking_param_disable=None base_model=None deprecated=False
+7: id='meta/llama-3.1-70b-instruct' model_type='chat' client='ChatNVIDIA' endpoint=None aliases=None supports_tools=True supports_structured_output=True supports_thinking=False thinking_prefix=None no_thinking_prefix=None thinking_param_enable=None thinking_param_disable=None base_model=None deprecated=False
+8: id='deepseek-ai/deepseek-v4-pro' model_type='chat' client='ChatNVIDIA' endpoint=None aliases=None supports_tools=True supports_structured_output=True supports_thinking=True thinking_prefix=None no_thinking_prefix=None thinking_param_enable={'chat_template_kwargs': {'thinking': True}} thinking_param_disable={'chat_template_kwargs': {'thinking': False}} base_model=None deprecated=False
+9: id='meta/llama-3.2-1b-instruct' model_type='chat' client='ChatNVIDIA' endpoint=None aliases=None supports_tools=True supports_structured_output=True supports_thinking=False thinking_prefix=None no_thinking_prefix=None thinking_param_enable=None thinking_param_disable=None base_model=None deprecated=False
+10: id='meta/llama-3.2-3b-instruct' model_type='chat' client='ChatNVIDIA' endpoint=None aliases=None supports_tools=True supports_structured_output=True supports_thinking=False thinking_prefix=None no_thinking_prefix=None thinking_param_enable=None thinking_param_disable=None base_model=None deprecated=False
+11: id='qwen/qwen3-next-80b-a3b-instruct' model_type='chat' client='ChatNVIDIA' endpoint=None aliases=None supports_tools=True supports_structured_output=True supports_thinking=False thinking_prefix=None no_thinking_prefix=None thinking_param_enable=None thinking_param_disable=None base_model=None deprecated=False
+12: id='meta/llama-3.3-70b-instruct' model_type='chat' client='ChatNVIDIA' endpoint=None aliases=None supports_tools=True supports_structured_output=True supports_thinking=False thinking_prefix=None no_thinking_prefix=None thinking_param_enable=None thinking_param_disable=None base_model=None deprecated=False
+13: id='nvidia/llama-3.1-nemoguard-8b-content-safety' model_type='chat' client='ChatNVIDIA' endpoint=None aliases=None supports_tools=False supports_structured_output=True supports_thinking=False thinking_prefix=None no_thinking_prefix=None thinking_param_enable=None thinking_param_disable=None base_model=None deprecated=False
+14: id='deepseek-ai/deepseek-v3.2' model_type='chat' client='ChatNVIDIA' endpoint=None aliases=None supports_tools=True supports_structured_output=True supports_thinking=True thinking_prefix=None no_thinking_prefix=None thinking_param_enable={'chat_template_kwargs': {'enable_thinking': True}} thinking_param_disable={'chat_template_kwargs': {'enable_thinking': False}} base_model=None deprecated=False
+15: id='openai/gpt-oss-120b' model_type='chat' client='ChatNVIDIA' endpoint=None aliases=None supports_tools=True supports_structured_output=True supports_thinking=False thinking_prefix=None no_thinking_prefix=None thinking_param_enable=None thinking_param_disable=None base_model=None deprecated=False
+16: id='qwen/qwen3-next-80b-a3b-thinking' model_type='chat' client='ChatNVIDIA' endpoint=None aliases=None supports_tools=True supports_structured_output=True supports_thinking=False thinking_prefix=None no_thinking_prefix=None thinking_param_enable=None thinking_param_disable=None base_model=None deprecated=False
+17: id='moonshotai/kimi-k2-instruct' model_type='chat' client='ChatNVIDIA' endpoint=None aliases=None supports_tools=True supports_structured_output=True supports_thinking=False thinking_prefix=None no_thinking_prefix=None thinking_param_enable=None thinking_param_disable=None base_model=None deprecated=False
+18: id='nvidia/llama-3.3-nemotron-super-49b-v1' model_type='chat' client='ChatNVIDIA' endpoint=None aliases=None supports_tools=True supports_structured_output=True supports_thinking=True thinking_prefix='detailed thinking on' no_thinking_prefix='detailed thinking off' thinking_param_enable=None thinking_param_disable=None base_model=None deprecated=False
+19: id='deepseek-ai/deepseek-v3.1-terminus' model_type='chat' client='ChatNVIDIA' endpoint=None aliases=None supports_tools=True supports_structured_output=True supports_thinking=True thinking_prefix=None no_thinking_prefix=None thinking_param_enable={'chat_template_kwargs': {'enable_thinking': True}} thinking_param_disable={'chat_template_kwargs': {'enable_thinking': False}} base_model=None deprecated=False
+20: id='moonshotai/kimi-k2-instruct-0905' model_type='chat' client='ChatNVIDIA' endpoint=None aliases=None supports_tools=True supports_structured_output=True supports_thinking=False thinking_prefix=None no_thinking_prefix=None thinking_param_enable=None thinking_param_disable=None base_model=None deprecated=False
+21: id='nvidia/nemotron-3-ultra-550b-a55b' model_type='chat' client='ChatNVIDIA' endpoint=None aliases=None supports_tools=True supports_structured_output=True supports_thinking=True thinking_prefix=None no_thinking_prefix=None thinking_param_enable={'chat_template_kwargs': {'enable_thinking': True}} thinking_param_disable={'chat_template_kwargs': {'enable_thinking': False}} base_model=None deprecated=False
+22: id='nvidia/nemotron-3-nano-30b-a3b' model_type='chat' client='ChatNVIDIA' endpoint=None aliases=None supports_tools=True supports_structured_output=True supports_thinking=True thinking_prefix=None no_thinking_prefix=None thinking_param_enable={'chat_template_kwargs': {'enable_thinking': True}} thinking_param_disable={'chat_template_kwargs': {'enable_thinking': False}} base_model=None deprecated=False
+23: id='deepseek-ai/deepseek-v4-flash' model_type='chat' client='ChatNVIDIA' endpoint=None aliases=None supports_tools=True supports_structured_output=True supports_thinking=True thinking_prefix=None no_thinking_prefix=None thinking_param_enable={'chat_template_kwargs': {'thinking': True}} thinking_param_disable={'chat_template_kwargs': {'thinking': False}} base_model=None deprecated=False
+24: id='nvidia/llama-3.3-nemotron-super-49b-v1.5' model_type='chat' client='ChatNVIDIA' endpoint=None aliases=None supports_tools=True supports_structured_output=True supports_thinking=True thinking_prefix='/think' no_thinking_prefix='/no_think' thinking_param_enable=None thinking_param_disable=None base_model=None deprecated=False
+25: id='moonshotai/kimi-k2-thinking' model_type='chat' client='ChatNVIDIA' endpoint=None aliases=None supports_tools=True supports_structured_output=True supports_thinking=False thinking_prefix=None no_thinking_prefix=None thinking_param_enable=None thinking_param_disable=None base_model=None deprecated=False
+26: id='meta/llama-3.1-8b-instruct' model_type='chat' client='ChatNVIDIA' endpoint=None aliases=None supports_tools=True supports_structured_output=True supports_thinking=False thinking_prefix=None no_thinking_prefix=None thinking_param_enable=None thinking_param_disable=None base_model=None deprecated=False
+#+end_example
+**** Create & visualize =StateGraph=
+#+begin_src python :results graphics file :file langgraph_diagram.png :session *python* :exports both
+class State(TypedDict):
+    """
+    Graph state schema.
+    - messages: List of conversation messages with automatic append behavior
+    """
+    messages: Annotated[list, add_messages]
+
+def chatbot(state: State):
+    """
+    Chatbot node that invokes the LLM with conversation history.
+    Returns updated state with the assistant's response.
+    """
+    return {"messages": [llm.invoke(state["messages"])]}
+
+graph_builder = StateGraph(State)
+
+# Add the chatbot node
+graph_builder.add_node("chatbot", chatbot)
+
+# Connect START -> chatbot (entry point)
+graph_builder.add_edge(START, "chatbot")
+
+# Compile the graph
+graph = graph_builder.compile()
+
+# Visualize the graph
+with open("langgraph_diagram.png", "wb") as f:
+    f.write(graph.get_graph().draw_mermaid_png())
+#+end_src
+
+#+RESULTS:
+[[file:langgraph_diagram.png]]
+**** Invoke responses
+#+begin_src python :results output :session *python* :exports both
+res = graph.invoke({"messages": [{"role": "user", "content": "What is chicago known for?"}]})
+print(res)
+#+end_src
+
+#+RESULTS:
+: {'messages': [HumanMessage(content='What is chicago known for?', additional_kwargs={}, response_metadata={}, id='e963d37c-c1e3-4e3e-9dc9-af7f1701f557'), AIMessage(content='Chicago is known for its rich history, vibrant culture, and iconic landmarks. Here are some of the top things Chicago is known for:\n\n1. **Beaches**: Chicago has 26 miles of Lake Michigan shoreline, attracting millions of visitors each year.\n2. **Architecture**: Chicago is famous for its skyscrapers, including the Willis Tower (formerly the Sears Tower), the John Hancock Center, and the Robie House, a UNESCO World Heritage Site.\n3. **Deep-Dish Pizza**: Chicago-style deep-dish pizza is a classic dish that originated in the city. You\'ll find it at classic spots like Lou Malnati\'s, Pequod\'s, and Pizzeria Uno.\n4. **Music**: Chicago is the birthplace of jazz, blues, and electric blues. The city is home to many famous musicians, including Buddy Guy, Muddy Waters, and Etta James.\n5. **Sports**: Chicago is known for its passionate sports fans, with iconic teams like the Chicago Cubs (Wrigley Field), the Chicago White Sox (Guaranteed Rate Field), the Bears (Soldier Field), the Bulls (United Center), and the Blackhawks (United Center).\n6. **Festivals**: Chicago hosts many iconic festivals, including Lollapalooza, Pitchfork Music Festival, and Taste of Chicago.\n7. **Theater**: Chicago is a hub for theater, with the Steppenwolf Theatre Company, the Goodman Theatre, and the Chicago Shakespeare Theater.\n8. **Food**: Chicago is famous for its hot dogs (known as "red hots"), Italian beef sandwiches, and Polish sausage. You\'ll also find excellent ethnic restaurants, including Mexican, Chinese, and Indian cuisine.\n9. **History**: Chicago has a rich history, with landmarks like the Water Tower, the Field Museum (home to Sue, the T. rex skeleton), and the Museum of Science and Industry.\n10. **Ironworkers**: Chicago is known as the "Windy City," but it\'s also earned the nickname "The City That Never Sleeps," given its non-stop activity and construction (like the famous "belmont" steeple on buildings).\n\nThese are just a few things Chicago is known for, but the city has much more to offer!', additional_kwargs={}, response_metadata={'role': 'assistant', 'content': 'Chicago is known for its rich history, vibrant culture, and iconic landmarks. Here are some of the top things Chicago is known for:\n\n1. **Beaches**: Chicago has 26 miles of Lake Michigan shoreline, attracting millions of visitors each year.\n2. **Architecture**: Chicago is famous for its skyscrapers, including the Willis Tower (formerly the Sears Tower), the John Hancock Center, and the Robie House, a UNESCO World Heritage Site.\n3. **Deep-Dish Pizza**: Chicago-style deep-dish pizza is a classic dish that originated in the city. You\'ll find it at classic spots like Lou Malnati\'s, Pequod\'s, and Pizzeria Uno.\n4. **Music**: Chicago is the birthplace of jazz, blues, and electric blues. The city is home to many famous musicians, including Buddy Guy, Muddy Waters, and Etta James.\n5. **Sports**: Chicago is known for its passionate sports fans, with iconic teams like the Chicago Cubs (Wrigley Field), the Chicago White Sox (Guaranteed Rate Field), the Bears (Soldier Field), the Bulls (United Center), and the Blackhawks (United Center).\n6. **Festivals**: Chicago hosts many iconic festivals, including Lollapalooza, Pitchfork Music Festival, and Taste of Chicago.\n7. **Theater**: Chicago is a hub for theater, with the Steppenwolf Theatre Company, the Goodman Theatre, and the Chicago Shakespeare Theater.\n8. **Food**: Chicago is famous for its hot dogs (known as "red hots"), Italian beef sandwiches, and Polish sausage. You\'ll also find excellent ethnic restaurants, including Mexican, Chinese, and Indian cuisine.\n9. **History**: Chicago has a rich history, with landmarks like the Water Tower, the Field Museum (home to Sue, the T. rex skeleton), and the Museum of Science and Industry.\n10. **Ironworkers**: Chicago is known as the "Windy City," but it\'s also earned the nickname "The City That Never Sleeps," given its non-stop activity and construction (like the famous "belmont" steeple on buildings).\n\nThese are just a few things Chicago is known for, but the city has much more to offer!', 'token_usage': {'prompt_tokens': 41, 'total_tokens': 501, 'completion_tokens': 460}, 'finish_reason': 'stop', 'model_name': 'meta/llama-3.2-3b-instruct'}, id='lc_run--019fa00f-4e36-7060-887f-1c0c9d8b8846-0', tool_calls=[], invalid_tool_calls=[], usage_metadata={'input_tokens': 41, 'output_tokens': 460, 'total_tokens': 501}, role='assistant')]}
+**** Stream
+***** Default mode
+Monitor the outputs in the =*python*= buffer (using =C-x C-b=)
+#+begin_src python :async :results output :session *python* :exports both
+def stream_graph_updates(user_input: str):
+    """Stream responses from the graph for real-time output."""
+    for event in graph.stream({"messages": [{"role": "user", "content": user_input}]}):
+        for value in event.values():
+            print("Assistant:", value["messages"][-1].content)
+
+stream_graph_updates("what is portland known for?")
+#+end_src
+
+#+RESULTS:
+#+begin_example
+Assistant: Portland is known for many things, including:
+
+1. **Food trucks**: Portland is famous for its vibrant food truck scene, with over 600 trucks serving everything from gourmet grilled cheese to Egyptian koshari.
+2. **Craft beer**: Portland is a hub for craft breweries, with over 70 breweries and a vibrant beer culture.
+3. **Coffee culture**: Portland is a coffee lover's paradise, with a high concentration of independent coffee shops and a popular coffeehouse culture.
+4. **Vegan and vegetarian scene**: Portland is known for its abundance of plant-based restaurants and cafes, making it a popular destination for vegetarians and vegans.
+5. **Quirky shops and markets**: Portland is famous for its eclectic and independent shops, including vintage clothing stores, record shops, and antique markets.
+6. **Outdoor recreation**: Portland is surrounded by mountains, forests, and waterways, making it a great destination for outdoor enthusiasts who love hiking, biking, and kayaking.
+7. **Food cart pods**: Portland's food cart pods, such as Cartlandia and Screen Door, offer a variety of cuisines and cuisines under one roof.
+8. **Annual festivals**: Portland loves to throw parties, with famous festivals like Powell's City of Books' Used Books Sale, Rose Festival, and Portland Rose Garden Festival.
+9. **Quality of life**: Portland consistently ranks high in quality of life, innovation, and overall desirability, making it a popular destination for people from all over the world.
+10. **Artist community**: Portland has a thriving arts community, with numerous galleries, museums, and street art installations throughout the city.
+
+Some notable attractions in Portland include:
+
+1. Pittock Mansion
+2. Japanese Garden
+3. Powell's City of Books
+4. Voodoo Doughnut
+5. Crystal Springs Rhododendron Gardens
+6. Portland Art Museum
+7. Hawthorne District
+8. Markets (e.g., Portland Saturday Market, street vendors at Salmonberry and Ladd's Addition)
+
+Some notable neighborhoods in Portland include:
+
+1. The Pearl District
+2. Alberta Arts District
+3. Hawthorne District
+4. Division Street
+5. Old Town Chinatown
+
+Keep in mind that Portland is a city with many unique neighborhoods, each with its own character and charm.
+#+end_example
+***** =messages= mode
+#+begin_src python :async :results output :session *python* :exports both
+def stream_graph_messages(user_input: str):
+    """Stream responses from the graph for real-time output."""
+    for chunk, metadata in graph.stream({"messages": [{"role": "user", "content": user_input}]}, stream_mode="messages"):
+        if chunk.content:
+            print(chunk.content, end="", flush=True)
+
+stream_graph_messages("what is portland known for?")
+#+end_src
+
+#+RESULTS:
+#+begin_example
+Portland is known for a variety of things, including:
+
+1. **Food trucks**: Portland has one of the highest concentrations of food trucks in the country, offering a wide range of culinary options from traditional American fare to international cuisine.
+2. **Craft beer**: Portland is home to over 70 breweries, earning it the nickname "Brew City." Some popular breweries include Widmer Brothers Brewing, Deschutes Brewery, and Cascade Brewing Barrel House.
+3. **Coffee culture**: Portland is known for its vibrant coffee culture, with numerous independent coffee shops and a loyal following of coffee enthusiasts.
+4. **Outdoor activities**: Portland is surrounded by natural beauty, with numerous parks, gardens, and green spaces, including Forest Park, which is one of the largest urban forests in the United States.
+5. **Quirky and eclectic vibe**: Portland is famous for its offbeat and eclectic atmosphere, with a thriving arts and culture scene, vintage shops, and an abundance of murals and street art.
+6. **Food and drink innovation**: Portland is known for its culinary innovation, with a focus on locally sourced ingredients, farm-to-table cuisine, and creative uses for foraged and wild ingredients.
+7. **Eco-friendly and environmentally conscious**: Portland is a leader in environmental sustainability, with a strong commitment to reducing waste, promoting recycling, and preserving natural resources.
+8. **Vintage and thrift shopping**: Portland is a haven for vintage and thrift shopping, with numerous boutiques, antique stores, and second-hand shops lining the streets.
+9. **Music scene**: Portland has a thriving music scene, with numerous venues hosting live music performances, including the iconic Roseland Theater and the Crystal Ballroom.
+10. **Celebrity chef presence**: Food and drink critic Jonathan Gold once called Portland, 'best food city in North America.' 
+11. **Murals and street art**: Portland is renowned for its vibrant and diverse street art scene, with numerous murals and public art installations throughout the city.
+12. **Garden innovation**: Portland is home to numerous botanical gardens, including the Japan Garden, which is one of the largest Japanese gardens outside of Japan, as well as the Portland Rose Garden.
+13. **Massage therapists and wellness**: Portland has a high concentration of massage therapists and wellness centers, offering a wide range of spa treatments and alternative therapies.
+
+Portland's unique blend of culture, natural beauty, and community spirit has made it a beloved destination for visitors and residents alike
+#+end_example
+**** Structured output with =Pydantic=
+#+begin_src python :async :results output :session *python* :exports both
+from pydantic import BaseModel
+from typing import Literal
+
+class UserIntent(BaseModel):
+    """The user's current intent in the conversation"""
+    intent: Literal["naruto", "bleach"]
+
+MODEL_ID = 'meta/llama-3.1-8b-instruct'
+llm_structured = init_chat_model(model=MODEL_ID, model_provider="nvidia").with_structured_output(UserIntent, strict=True)
+
+# Test: Classify user intent based on anime question
+res = llm_structured.invoke([
+    {'role':'system','content':'You are an anime encyclopedia. Classify if the user is asking a question on naruto or bleach.'},
+    {'role':'user','content':'who is sasuke?'}
+])
+print(f'intent: {res}')
+#+end_src
+
+#+RESULTS:
+: intent: intent='naruto'
+**** Memory
+#+begin_src python :results output :session *python* :exports both
+from langgraph.checkpoint.memory import InMemorySaver  
+from langgraph.graph import StateGraph
+import json
+from langchain_core.messages import convert_to_openai_messages
+
+checkpointer = InMemorySaver()  
+
+graph = graph_builder.compile(checkpointer=checkpointer)  
+
+res = graph.invoke(
+    {"messages": [{"role": "user", "content": "what is cuda?"}]},
+    {"configurable": {"thread_id": "1"}},
+)
+dump = json.dumps(convert_to_openai_messages(res['messages']))
+print(dump)
+#+end_src
+
+#+RESULTS:
+: [{"role": "user", "content": "what is cuda?"}, {"role": "assistant", "content": "CUDA (Compute Unified Device Architecture) is a parallel computing platform and programming model developed by NVIDIA. It allows developers to harness the power of NVIDIA graphics processing units (GPUs) for general-purpose computing, beyond just graphics rendering.\n\nCUDA was first announced in 2007 and has since become a widely used technology in various fields, including:\n\n1. **High-Performance Computing (HPC)**: CUDA-enabled systems are used in various HPC applications, such as scientific simulations, data analytics, and machine learning.\n2. **Artificial Intelligence (AI) and Deep Learning**: Many AI and deep learning models are architected to take advantage of parallel processing capabilities of CUDA-enabled GPUs.\n3. **Video Processing**: CUDA is used in video encoding, decoding, and rendering applications, such as video editing software.\n4. **Computer Vision**: CUDA is used in various computer vision applications, such as object detection, image recognition, and image processing.\n\nThe key features of CUDA include:\n\n1. **Parallel Processing**: CUDA allows developers to write programs that can execute in parallel, taking advantage of the massively parallel architecture of modern GPUs.\n2. **Dynamic Parallelism**: CUDA's dynamic parallelism allows developers to create and manage automated waves of threads, enabling efficient execution of steady-state computations.\n3. **SIMT (Single Instruction, Multiple Thread) Architecture**: CUDA's SIMT architecture is designed to minimize software overhead and optimize performance.\n4. **CUDA Drivers and SDKs**: NVIDIA provides CUDA drivers and software development kits (SDKs) that simplify the process of programming and optimizing CUDA applications.\n\nCUDA offers various advantages over traditional CPUs, including:\n\n1. **High Performance**: CUDA-enabled GPUs can offering much higher performance per Watt than traditional CPUs.\n2. **Scalability**: CUDA is designed to scale to large numbers of cores, making it suitable for large-scale applications.\n3. **Energy Efficiency**: CUDA's parallel processing architecture can reduce energy consumption compared to traditional CPUs.\n\nHowever, CUDA also has some limitations:\n\n1. **Software Complexity**: Writing high-performance CUDA applications requires significant expertise in parallel programming and CUDA-specific skills.\n2. **Compatibility Issues**: CUDA may not be compatible with all target platforms or applications.\n3. **Local Memory Management**: CUDA has strict local memory management requirements, which can limit the efficiency of applications.\n\nIn summary, CUDA is a powerful platform for parallel computing that enables developers to harness the performance of NVIDIA GPUs for general-purpose computing. While it has its limitations, CUDA has become an essential tool for various applications and industries."}]
+
+#+begin_src python :results output :session *python* :exports both
+res = graph.invoke(
+    {"messages": [{"role": "user", "content": "what was my previous question?"}]},
+    {"configurable": {"thread_id": "1"}},  
+)
+dump = json.dumps(convert_to_openai_messages(res['messages']))
+print(dump)
+#+end_src
+
+#+RESULTS:
+: [{"role": "user", "content": "what is cuda?"}, {"role": "assistant", "content": "CUDA (Compute Unified Device Architecture) is a parallel computing platform and programming model developed by NVIDIA. It allows developers to harness the power of NVIDIA graphics processing units (GPUs) for general-purpose computing, beyond just graphics rendering.\n\nCUDA was first announced in 2007 and has since become a widely used technology in various fields, including:\n\n1. **High-Performance Computing (HPC)**: CUDA-enabled systems are used in various HPC applications, such as scientific simulations, data analytics, and machine learning.\n2. **Artificial Intelligence (AI) and Deep Learning**: Many AI and deep learning models are architected to take advantage of parallel processing capabilities of CUDA-enabled GPUs.\n3. **Video Processing**: CUDA is used in video encoding, decoding, and rendering applications, such as video editing software.\n4. **Computer Vision**: CUDA is used in various computer vision applications, such as object detection, image recognition, and image processing.\n\nThe key features of CUDA include:\n\n1. **Parallel Processing**: CUDA allows developers to write programs that can execute in parallel, taking advantage of the massively parallel architecture of modern GPUs.\n2. **Dynamic Parallelism**: CUDA's dynamic parallelism allows developers to create and manage automated waves of threads, enabling efficient execution of steady-state computations.\n3. **SIMT (Single Instruction, Multiple Thread) Architecture**: CUDA's SIMT architecture is designed to minimize software overhead and optimize performance.\n4. **CUDA Drivers and SDKs**: NVIDIA provides CUDA drivers and software development kits (SDKs) that simplify the process of programming and optimizing CUDA applications.\n\nCUDA offers various advantages over traditional CPUs, including:\n\n1. **High Performance**: CUDA-enabled GPUs can offering much higher performance per Watt than traditional CPUs.\n2. **Scalability**: CUDA is designed to scale to large numbers of cores, making it suitable for large-scale applications.\n3. **Energy Efficiency**: CUDA's parallel processing architecture can reduce energy consumption compared to traditional CPUs.\n\nHowever, CUDA also has some limitations:\n\n1. **Software Complexity**: Writing high-performance CUDA applications requires significant expertise in parallel programming and CUDA-specific skills.\n2. **Compatibility Issues**: CUDA may not be compatible with all target platforms or applications.\n3. **Local Memory Management**: CUDA has strict local memory management requirements, which can limit the efficiency of applications.\n\nIn summary, CUDA is a powerful platform for parallel computing that enables developers to harness the performance of NVIDIA GPUs for general-purpose computing. While it has its limitations, CUDA has become an essential tool for various applications and industries."}, {"role": "user", "content": "what was my previous question?"}, {"role": "assistant", "content": "Your previous question was: \"what is cuda?\""}]
+**** Interrupts
+#+begin_src python :results output :session *python* :exports both
+from langgraph.checkpoint.memory import InMemorySaver
+from typing import TypedDict
+
+from langgraph.graph import StateGraph, START, END
+from langgraph.types import Command, interrupt
+
+class FormState(TypedDict):
+    age: int | None
+
+def dummy_start_node(state: FormState):
+    print('start node')
+
+def get_age_node(state: FormState):
+    prompt = "What is your age?"
+
+    while True:
+        answer = interrupt(prompt)  # payload surfaces in result["__interrupt__"]
+
+        if isinstance(answer, int) and answer > 0:
+            return {"age": answer}
+
+        prompt = f"'{answer}' is not a valid age. Please enter a positive number."
+
+memory = InMemorySaver()
+
+builder = StateGraph(FormState)
+builder.add_node("dummy_start_node",dummy_start_node)
+builder.add_node("collect_age", get_age_node)
+builder.add_edge(START,"dummy_start_node")
+builder.add_edge("dummy_start_node","collect_age")
+builder.add_edge("collect_age", END)
+
+graph = builder.compile(checkpointer=memory)
+
+config = {"configurable": {"thread_id": "form-1"}}
+first = graph.invoke({"age": None}, config=config)
+print(first["__interrupt__"])  # -> [Interrupt(value='What is your age?', ...)]
+
+# Provide invalid data; the node re-prompts
+retry = graph.invoke(Command(resume="thirty"), config=config)
+print(retry["__interrupt__"])  # -> [Interrupt(value="'thirty' is not a valid age...", ...)]
+
+# Provide valid data; loop exits and state updates
+final = graph.invoke(Command(resume=30), config=config)
+print(final["age"])  # -> 30
+#+end_src
+
+#+RESULTS:
+: start node
+: [Interrupt(value='What is your age?', id='8bcf04877f7b8003d4e2c8ee0bc9bde0')]
+: [Interrupt(value="'thirty' is not a valid age. Please enter a positive number.", id='8bcf04877f7b8003d4e2c8ee0bc9bde0')]
+: 30
+**** Agent skills
+***** =SKILL.md=                                                   :Text:
+#+begin_src shell :results output :exports both
+mkdir -p skills/sales-analytics
+ln -s ../jupyter_notebook/skills_ref
+ls
+#+end_src
+
+#+RESULTS:
+#+begin_example
+01-nim_mcp.org
+02-langgraph.org
+langgraph_diagram.png
+mcp_client.py
+mcp_server.py
+mcp_server_low_level.py
+mcp_server_low_level_http.py
+pixi.lock
+pixi.toml
+skills
+skills_ref
+#+end_example
+
+(=C-c C-v t=)
+#+begin_src bash :tangle skills/sales-analytics/SKILL.md
+---
+name: sales-analytics
+description: Database schema and business logic for sales data analysis including customers, orders, and revenue.
+---
+# Sales Analytics Schema
+
+## Tables
+
+### customers
+- customer_id (PRIMARY KEY)
+- name
+- email
+- signup_date
+- status (active/inactive)
+- customer_tier (bronze/silver/gold/platinum)
+
+### orders
+- order_id (PRIMARY KEY)
+- customer_id (FOREIGN KEY -> customers)
+- order_date
+- status (pending/completed/cancelled/refunded)
+- total_amount
+- sales_region (north/south/east/west)
+
+### order_items
+- item_id (PRIMARY KEY)
+- order_id (FOREIGN KEY -> orders)
+- product_id
+- quantity
+- unit_price
+- discount_percent
+
+## Business Logic
+
+**Active customers**: status = 'active' AND signup_date <= CURRENT_DATE - INTERVAL '90 days'
+
+**Revenue calculation**: Only count orders with status = 'completed'. Use total_amount from orders table, which already accounts for discounts.
+
+**Customer lifetime value (CLV)**: Sum of all completed order amounts for a customer.
+
+**High-value orders**: Orders with total_amount > 1000
+
+## Example Query
+
+-- Get top 10 customers by revenue in the last quarter
+SELECT
+    c.customer_id,
+    c.name,
+    c.customer_tier,
+    SUM(o.total_amount) as total_revenue
+FROM customers c
+JOIN orders o ON c.customer_id = o.customer_id
+WHERE o.status = 'completed'
+  AND o.order_date >= CURRENT_DATE - INTERVAL '3 months'
+GROUP BY c.customer_id, c.name, c.customer_tier
+ORDER BY total_revenue DESC
+LIMIT 10
+#+end_src
+***** Tools & Middleware
+#+begin_src python :async :results output :session *python* :exports both
+import os
+from dotenv import load_dotenv
+load_dotenv()
+import subprocess
+from typing import NotRequired
+from langchain.tools import tool
+from langchain.agents import create_agent
+from langchain.agents.middleware import ModelRequest, ModelResponse, AgentMiddleware, AgentState
+from langchain.messages import SystemMessage
+from typing import Callable
+from pathlib import Path
+from skills_ref.utils import list_skills
+from skills_ref.models import SkillProperties
+
+class SkillsState(AgentState):
+    """State for the skills middleware."""
+
+    skills_metadata: NotRequired[list[SkillProperties]]
+    """List of loaded skill metadata (name, description)."""
+
+@tool
+def bash(command: str) -> str:
+    """Execute a bash command and return the output.
+
+    Use this to access skills and resources on the filesystem:
+    - Read skill files: cat /path/to/skill/SKILL.md
+    - List directories: ls /path/to/dir
+
+    Args:
+        command: The bash command to execute
+    """
+    if not command.startswith(('ls','cat','sqlite3')):
+        return 'only "ls","cat" and "sqlite3" commands are allowed'
+    result = subprocess.run(command, shell=True, capture_output=True, text=True, timeout=30)
+    output = result.stdout
+    if result.returncode != 0 and result.stderr:
+        output = f"Error (exit {result.returncode}): {result.stderr}\n{output}"
+    return output or result.stderr
+
+# Create skill middleware
+class SkillMiddleware(AgentMiddleware):
+    """Middleware that injects skill descriptions into the system prompt."""
+
+    state_schema = SkillsState
+
+    # Register the bash tool as a class variable
+    tools = [bash]
+
+    def __init__(self,skills_dir):
+        self.skills_dir = skills_dir
+
+    def before_agent(self, state:SkillsState, runtime):
+        skills = list_skills(self.skills_dir)
+        return SkillsState(skills_metadata=skills)
+
+    def wrap_model_call(
+        self,
+        request: ModelRequest,
+        handler: Callable[[ModelRequest], ModelResponse],
+    ) -> ModelResponse:
+        """Sync: Inject skill descriptions into system prompt."""
+
+        skills = request.state.get("skills_metadata", [])
+        skills_list = []
+        for skill in skills:
+            skills_list.append(
+                f"- **{self.skills_dir / skill.name}**: {skill.description}"
+            )
+        self.skills_prompt = "\n".join(skills_list)
+
+        # Build the skills addendum
+        skills_addendum = (
+            f"\n\n## Available Skills\n\n{self.skills_prompt}\n\n"
+            "Use the bash tool to read skill instructions, e.g., "
+            "`bash('cat /path/to/skill/SKILL.md')`. "
+        )
+
+        # Append to system message content blocks
+        new_content = list(request.system_message.content_blocks) + [
+            {"type": "text", "text": skills_addendum}
+        ]
+        new_system_message = SystemMessage(content=new_content)
+        modified_request = request.override(system_message=new_system_message)
+        response = handler(modified_request)
+        return response
+
+# Create agents
+from pydantic import BaseModel, Field
+
+class SQLOutput(BaseModel):
+    sql: str = Field(description="runnable SQL query")
+
+from langchain.chat_models import init_chat_model
+
+def create_sql_agent(skills_dir,inf_url,nvidia_api_key,debug=False):
+    model_id = "openai/gpt-oss-120b"
+    nvidia_model = init_chat_model(model=model_id,base_url=inf_url,api_key=nvidia_api_key,model_provider="nvidia")
+    # Create the agent with skill support
+    agent = create_agent(
+        nvidia_model,
+        system_prompt=(
+            f"""
+            You are a SQL query assistant that generates runnable SQL query for a sales-analytics database.
+            Only return the SQL query and nothing else.
+            """
+        ),
+        middleware=[SkillMiddleware(skills_dir)],
+        response_format=SQLOutput,
+        debug=debug
+    )
+    return agent
+
+skills_dir = Path.cwd().resolve() / 'skills'
+inf_url = "https://integrate.api.nvidia.com/v1"
+nvidia_api_key = os.environ["NVIDIA_API_KEY"]
+agent = create_sql_agent(skills_dir,inf_url,nvidia_api_key,debug=True)
+
+result = agent.invoke(  
+    {
+        "messages": [
+            {
+                "role": "user",
+                "content": (
+                    "Write a SQL query to find all customers "
+                    "who made orders over $1000 in the last month"
+                ),
+            }
+        ]
+    }
+)
+
+# Print the conversation
+for message in result["messages"]:
+    if hasattr(message, 'pretty_print'):
+        message.pretty_print()
+    else:
+        print(f"{message.type}: {message.content}")
+#+end_src
+
+#+RESULTS:
+#+begin_example
+[values] {'messages': [HumanMessage(content='Write a SQL query to find all customers who made orders over $1000 in the last month', additional_kwargs={}, response_metadata={}, id='e0169f2c-cdd5-4d61-b584-df2dd8ec170c')]}
+[updates] {'SkillMiddleware.before_agent': {'skills_metadata': [SkillProperties(name='sales-analytics', description='Database schema and business logic for sales data analysis including customers, orders, and revenue.', license=None, compatibility=None, allowed_tools=None, metadata=None)]}}
+[values] {'messages': [HumanMessage(content='Write a SQL query to find all customers who made orders over $1000 in the last month', additional_kwargs={}, response_metadata={}, id='e0169f2c-cdd5-4d61-b584-df2dd8ec170c')], 'skills_metadata': [SkillProperties(name='sales-analytics', description='Database schema and business logic for sales data analysis including customers, orders, and revenue.', license=None, compatibility=None, allowed_tools=None, metadata=None)]}
+[updates] {'model': {'messages': [AIMessage(content='', additional_kwargs={'reasoning_content': "We need to read the skill file to understand schema. Let's open the skill.", 'reasoning': "We need to read the skill file to understand schema. Let's open the skill.", '_reasoning_api_fields': ['reasoning_content', 'reasoning'], 'tool_calls': [{'id': 'chatcmpl-tool-9e44a8005571aad3', 'type': 'function', 'function': {'name': 'bash', 'arguments': '{"command": "cat /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics"}'}}]}, response_metadata={'role': 'assistant', 'content': None, 'refusal': None, 'annotations': None, 'audio': None, 'function_call': None, 'tool_calls': [{'id': 'chatcmpl-tool-9e44a8005571aad3', 'type': 'function', 'function': {'name': 'bash', 'arguments': '{"command": "cat /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics"}'}}], 'reasoning': "We need to read the skill file to understand schema. Let's open the skill.", 'reasoning_content': "We need to read the skill file to understand schema. Let's open the skill.", 'token_usage': {'prompt_tokens': 329, 'total_tokens': 392, 'completion_tokens': 63, 'prompt_tokens_details': None}, 'finish_reason': 'tool_calls', 'model_name': 'openai/gpt-oss-120b'}, id='lc_run--019fa04a-0d2c-7192-a325-ad137e5dcbe9-0', tool_calls=[{'name': 'bash', 'args': {'command': 'cat /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics'}, 'id': 'chatcmpl-tool-9e44a8005571aad3', 'type': 'tool_call'}], invalid_tool_calls=[], usage_metadata={'input_tokens': 329, 'output_tokens': 63, 'total_tokens': 392}, role='assistant')]}}
+[values] {'messages': [HumanMessage(content='Write a SQL query to find all customers who made orders over $1000 in the last month', additional_kwargs={}, response_metadata={}, id='e0169f2c-cdd5-4d61-b584-df2dd8ec170c'), AIMessage(content='', additional_kwargs={'reasoning_content': "We need to read the skill file to understand schema. Let's open the skill.", 'reasoning': "We need to read the skill file to understand schema. Let's open the skill.", '_reasoning_api_fields': ['reasoning_content', 'reasoning'], 'tool_calls': [{'id': 'chatcmpl-tool-9e44a8005571aad3', 'type': 'function', 'function': {'name': 'bash', 'arguments': '{"command": "cat /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics"}'}}]}, response_metadata={'role': 'assistant', 'content': None, 'refusal': None, 'annotations': None, 'audio': None, 'function_call': None, 'tool_calls': [{'id': 'chatcmpl-tool-9e44a8005571aad3', 'type': 'function', 'function': {'name': 'bash', 'arguments': '{"command": "cat /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics"}'}}], 'reasoning': "We need to read the skill file to understand schema. Let's open the skill.", 'reasoning_content': "We need to read the skill file to understand schema. Let's open the skill.", 'token_usage': {'prompt_tokens': 329, 'total_tokens': 392, 'completion_tokens': 63, 'prompt_tokens_details': None}, 'finish_reason': 'tool_calls', 'model_name': 'openai/gpt-oss-120b'}, id='lc_run--019fa04a-0d2c-7192-a325-ad137e5dcbe9-0', tool_calls=[{'name': 'bash', 'args': {'command': 'cat /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics'}, 'id': 'chatcmpl-tool-9e44a8005571aad3', 'type': 'tool_call'}], invalid_tool_calls=[], usage_metadata={'input_tokens': 329, 'output_tokens': 63, 'total_tokens': 392}, role='assistant')], 'skills_metadata': [SkillProperties(name='sales-analytics', description='Database schema and business logic for sales data analysis including customers, orders, and revenue.', license=None, compatibility=None, allowed_tools=None, metadata=None)]}
+[updates] {'tools': {'messages': [ToolMessage(content='Error (exit 1): cat: /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics: Is a directory\n\n', name='bash', id='76bd5469-a1ef-4dcb-bf5e-fab9f7e2b4f1', tool_call_id='chatcmpl-tool-9e44a8005571aad3')]}}
+[values] {'messages': [HumanMessage(content='Write a SQL query to find all customers who made orders over $1000 in the last month', additional_kwargs={}, response_metadata={}, id='e0169f2c-cdd5-4d61-b584-df2dd8ec170c'), AIMessage(content='', additional_kwargs={'reasoning_content': "We need to read the skill file to understand schema. Let's open the skill.", 'reasoning': "We need to read the skill file to understand schema. Let's open the skill.", '_reasoning_api_fields': ['reasoning_content', 'reasoning'], 'tool_calls': [{'id': 'chatcmpl-tool-9e44a8005571aad3', 'type': 'function', 'function': {'name': 'bash', 'arguments': '{"command": "cat /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics"}'}}]}, response_metadata={'role': 'assistant', 'content': None, 'refusal': None, 'annotations': None, 'audio': None, 'function_call': None, 'tool_calls': [{'id': 'chatcmpl-tool-9e44a8005571aad3', 'type': 'function', 'function': {'name': 'bash', 'arguments': '{"command": "cat /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics"}'}}], 'reasoning': "We need to read the skill file to understand schema. Let's open the skill.", 'reasoning_content': "We need to read the skill file to understand schema. Let's open the skill.", 'token_usage': {'prompt_tokens': 329, 'total_tokens': 392, 'completion_tokens': 63, 'prompt_tokens_details': None}, 'finish_reason': 'tool_calls', 'model_name': 'openai/gpt-oss-120b'}, id='lc_run--019fa04a-0d2c-7192-a325-ad137e5dcbe9-0', tool_calls=[{'name': 'bash', 'args': {'command': 'cat /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics'}, 'id': 'chatcmpl-tool-9e44a8005571aad3', 'type': 'tool_call'}], invalid_tool_calls=[], usage_metadata={'input_tokens': 329, 'output_tokens': 63, 'total_tokens': 392}, role='assistant'), ToolMessage(content='Error (exit 1): cat: /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics: Is a directory\n\n', name='bash', id='76bd5469-a1ef-4dcb-bf5e-fab9f7e2b4f1', tool_call_id='chatcmpl-tool-9e44a8005571aad3')], 'skills_metadata': [SkillProperties(name='sales-analytics', description='Database schema and business logic for sales data analysis including customers, orders, and revenue.', license=None, compatibility=None, allowed_tools=None, metadata=None)]}
+[updates] {'model': {'messages': [AIMessage(content='', additional_kwargs={'reasoning_content': 'List directory.', 'reasoning': 'List directory.', '_reasoning_api_fields': ['reasoning_content', 'reasoning'], 'tool_calls': [{'id': 'chatcmpl-tool-9903330e1eec7a92', 'type': 'function', 'function': {'name': 'bash', 'arguments': '{"command": "ls -R /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics"}'}}]}, response_metadata={'role': 'assistant', 'content': None, 'refusal': None, 'annotations': None, 'audio': None, 'function_call': None, 'tool_calls': [{'id': 'chatcmpl-tool-9903330e1eec7a92', 'type': 'function', 'function': {'name': 'bash', 'arguments': '{"command": "ls -R /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics"}'}}], 'reasoning': 'List directory.', 'reasoning_content': 'List directory.', 'token_usage': {'prompt_tokens': 441, 'total_tokens': 494, 'completion_tokens': 53, 'prompt_tokens_details': None}, 'finish_reason': 'tool_calls', 'model_name': 'openai/gpt-oss-120b'}, id='lc_run--019fa04a-194a-7743-a708-7de5fa83b639-0', tool_calls=[{'name': 'bash', 'args': {'command': 'ls -R /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics'}, 'id': 'chatcmpl-tool-9903330e1eec7a92', 'type': 'tool_call'}], invalid_tool_calls=[], usage_metadata={'input_tokens': 441, 'output_tokens': 53, 'total_tokens': 494}, role='assistant')]}}
+[values] {'messages': [HumanMessage(content='Write a SQL query to find all customers who made orders over $1000 in the last month', additional_kwargs={}, response_metadata={}, id='e0169f2c-cdd5-4d61-b584-df2dd8ec170c'), AIMessage(content='', additional_kwargs={'reasoning_content': "We need to read the skill file to understand schema. Let's open the skill.", 'reasoning': "We need to read the skill file to understand schema. Let's open the skill.", '_reasoning_api_fields': ['reasoning_content', 'reasoning'], 'tool_calls': [{'id': 'chatcmpl-tool-9e44a8005571aad3', 'type': 'function', 'function': {'name': 'bash', 'arguments': '{"command": "cat /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics"}'}}]}, response_metadata={'role': 'assistant', 'content': None, 'refusal': None, 'annotations': None, 'audio': None, 'function_call': None, 'tool_calls': [{'id': 'chatcmpl-tool-9e44a8005571aad3', 'type': 'function', 'function': {'name': 'bash', 'arguments': '{"command": "cat /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics"}'}}], 'reasoning': "We need to read the skill file to understand schema. Let's open the skill.", 'reasoning_content': "We need to read the skill file to understand schema. Let's open the skill.", 'token_usage': {'prompt_tokens': 329, 'total_tokens': 392, 'completion_tokens': 63, 'prompt_tokens_details': None}, 'finish_reason': 'tool_calls', 'model_name': 'openai/gpt-oss-120b'}, id='lc_run--019fa04a-0d2c-7192-a325-ad137e5dcbe9-0', tool_calls=[{'name': 'bash', 'args': {'command': 'cat /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics'}, 'id': 'chatcmpl-tool-9e44a8005571aad3', 'type': 'tool_call'}], invalid_tool_calls=[], usage_metadata={'input_tokens': 329, 'output_tokens': 63, 'total_tokens': 392}, role='assistant'), ToolMessage(content='Error (exit 1): cat: /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics: Is a directory\n\n', name='bash', id='76bd5469-a1ef-4dcb-bf5e-fab9f7e2b4f1', tool_call_id='chatcmpl-tool-9e44a8005571aad3'), AIMessage(content='', additional_kwargs={'reasoning_content': 'List directory.', 'reasoning': 'List directory.', '_reasoning_api_fields': ['reasoning_content', 'reasoning'], 'tool_calls': [{'id': 'chatcmpl-tool-9903330e1eec7a92', 'type': 'function', 'function': {'name': 'bash', 'arguments': '{"command": "ls -R /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics"}'}}]}, response_metadata={'role': 'assistant', 'content': None, 'refusal': None, 'annotations': None, 'audio': None, 'function_call': None, 'tool_calls': [{'id': 'chatcmpl-tool-9903330e1eec7a92', 'type': 'function', 'function': {'name': 'bash', 'arguments': '{"command": "ls -R /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics"}'}}], 'reasoning': 'List directory.', 'reasoning_content': 'List directory.', 'token_usage': {'prompt_tokens': 441, 'total_tokens': 494, 'completion_tokens': 53, 'prompt_tokens_details': None}, 'finish_reason': 'tool_calls', 'model_name': 'openai/gpt-oss-120b'}, id='lc_run--019fa04a-194a-7743-a708-7de5fa83b639-0', tool_calls=[{'name': 'bash', 'args': {'command': 'ls -R /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics'}, 'id': 'chatcmpl-tool-9903330e1eec7a92', 'type': 'tool_call'}], invalid_tool_calls=[], usage_metadata={'input_tokens': 441, 'output_tokens': 53, 'total_tokens': 494}, role='assistant')], 'skills_metadata': [SkillProperties(name='sales-analytics', description='Database schema and business logic for sales data analysis including customers, orders, and revenue.', license=None, compatibility=None, allowed_tools=None, metadata=None)]}
+[updates] {'tools': {'messages': [ToolMessage(content='/agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics:\nSKILL.md\n', name='bash', id='ed8e9aa5-aa59-4722-8156-80a01587aa38', tool_call_id='chatcmpl-tool-9903330e1eec7a92')]}}
+[values] {'messages': [HumanMessage(content='Write a SQL query to find all customers who made orders over $1000 in the last month', additional_kwargs={}, response_metadata={}, id='e0169f2c-cdd5-4d61-b584-df2dd8ec170c'), AIMessage(content='', additional_kwargs={'reasoning_content': "We need to read the skill file to understand schema. Let's open the skill.", 'reasoning': "We need to read the skill file to understand schema. Let's open the skill.", '_reasoning_api_fields': ['reasoning_content', 'reasoning'], 'tool_calls': [{'id': 'chatcmpl-tool-9e44a8005571aad3', 'type': 'function', 'function': {'name': 'bash', 'arguments': '{"command": "cat /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics"}'}}]}, response_metadata={'role': 'assistant', 'content': None, 'refusal': None, 'annotations': None, 'audio': None, 'function_call': None, 'tool_calls': [{'id': 'chatcmpl-tool-9e44a8005571aad3', 'type': 'function', 'function': {'name': 'bash', 'arguments': '{"command": "cat /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics"}'}}], 'reasoning': "We need to read the skill file to understand schema. Let's open the skill.", 'reasoning_content': "We need to read the skill file to understand schema. Let's open the skill.", 'token_usage': {'prompt_tokens': 329, 'total_tokens': 392, 'completion_tokens': 63, 'prompt_tokens_details': None}, 'finish_reason': 'tool_calls', 'model_name': 'openai/gpt-oss-120b'}, id='lc_run--019fa04a-0d2c-7192-a325-ad137e5dcbe9-0', tool_calls=[{'name': 'bash', 'args': {'command': 'cat /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics'}, 'id': 'chatcmpl-tool-9e44a8005571aad3', 'type': 'tool_call'}], invalid_tool_calls=[], usage_metadata={'input_tokens': 329, 'output_tokens': 63, 'total_tokens': 392}, role='assistant'), ToolMessage(content='Error (exit 1): cat: /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics: Is a directory\n\n', name='bash', id='76bd5469-a1ef-4dcb-bf5e-fab9f7e2b4f1', tool_call_id='chatcmpl-tool-9e44a8005571aad3'), AIMessage(content='', additional_kwargs={'reasoning_content': 'List directory.', 'reasoning': 'List directory.', '_reasoning_api_fields': ['reasoning_content', 'reasoning'], 'tool_calls': [{'id': 'chatcmpl-tool-9903330e1eec7a92', 'type': 'function', 'function': {'name': 'bash', 'arguments': '{"command": "ls -R /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics"}'}}]}, response_metadata={'role': 'assistant', 'content': None, 'refusal': None, 'annotations': None, 'audio': None, 'function_call': None, 'tool_calls': [{'id': 'chatcmpl-tool-9903330e1eec7a92', 'type': 'function', 'function': {'name': 'bash', 'arguments': '{"command": "ls -R /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics"}'}}], 'reasoning': 'List directory.', 'reasoning_content': 'List directory.', 'token_usage': {'prompt_tokens': 441, 'total_tokens': 494, 'completion_tokens': 53, 'prompt_tokens_details': None}, 'finish_reason': 'tool_calls', 'model_name': 'openai/gpt-oss-120b'}, id='lc_run--019fa04a-194a-7743-a708-7de5fa83b639-0', tool_calls=[{'name': 'bash', 'args': {'command': 'ls -R /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics'}, 'id': 'chatcmpl-tool-9903330e1eec7a92', 'type': 'tool_call'}], invalid_tool_calls=[], usage_metadata={'input_tokens': 441, 'output_tokens': 53, 'total_tokens': 494}, role='assistant'), ToolMessage(content='/agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics:\nSKILL.md\n', name='bash', id='ed8e9aa5-aa59-4722-8156-80a01587aa38', tool_call_id='chatcmpl-tool-9903330e1eec7a92')], 'skills_metadata': [SkillProperties(name='sales-analytics', description='Database schema and business logic for sales data analysis including customers, orders, and revenue.', license=None, compatibility=None, allowed_tools=None, metadata=None)]}
+[updates] {'model': {'messages': [AIMessage(content='', additional_kwargs={'reasoning_content': 'Open SKILL.md.', 'reasoning': 'Open SKILL.md.', '_reasoning_api_fields': ['reasoning_content', 'reasoning'], 'tool_calls': [{'id': 'chatcmpl-tool-84097b9c272c6217', 'type': 'function', 'function': {'name': 'bash', 'arguments': '{"command": "sed -n \'1,200p\' /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics/SKILL.md"}'}}]}, response_metadata={'role': 'assistant', 'content': None, 'refusal': None, 'annotations': None, 'audio': None, 'function_call': None, 'tool_calls': [{'id': 'chatcmpl-tool-84097b9c272c6217', 'type': 'function', 'function': {'name': 'bash', 'arguments': '{"command": "sed -n \'1,200p\' /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics/SKILL.md"}'}}], 'reasoning': 'Open SKILL.md.', 'reasoning_content': 'Open SKILL.md.', 'token_usage': {'prompt_tokens': 534, 'total_tokens': 598, 'completion_tokens': 64, 'prompt_tokens_details': None}, 'finish_reason': 'tool_calls', 'model_name': 'openai/gpt-oss-120b'}, id='lc_run--019fa04a-1fd1-7b40-b8de-6e31a0d7a6e4-0', tool_calls=[{'name': 'bash', 'args': {'command': "sed -n '1,200p' /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics/SKILL.md"}, 'id': 'chatcmpl-tool-84097b9c272c6217', 'type': 'tool_call'}], invalid_tool_calls=[], usage_metadata={'input_tokens': 534, 'output_tokens': 64, 'total_tokens': 598}, role='assistant')]}}
+[values] {'messages': [HumanMessage(content='Write a SQL query to find all customers who made orders over $1000 in the last month', additional_kwargs={}, response_metadata={}, id='e0169f2c-cdd5-4d61-b584-df2dd8ec170c'), AIMessage(content='', additional_kwargs={'reasoning_content': "We need to read the skill file to understand schema. Let's open the skill.", 'reasoning': "We need to read the skill file to understand schema. Let's open the skill.", '_reasoning_api_fields': ['reasoning_content', 'reasoning'], 'tool_calls': [{'id': 'chatcmpl-tool-9e44a8005571aad3', 'type': 'function', 'function': {'name': 'bash', 'arguments': '{"command": "cat /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics"}'}}]}, response_metadata={'role': 'assistant', 'content': None, 'refusal': None, 'annotations': None, 'audio': None, 'function_call': None, 'tool_calls': [{'id': 'chatcmpl-tool-9e44a8005571aad3', 'type': 'function', 'function': {'name': 'bash', 'arguments': '{"command": "cat /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics"}'}}], 'reasoning': "We need to read the skill file to understand schema. Let's open the skill.", 'reasoning_content': "We need to read the skill file to understand schema. Let's open the skill.", 'token_usage': {'prompt_tokens': 329, 'total_tokens': 392, 'completion_tokens': 63, 'prompt_tokens_details': None}, 'finish_reason': 'tool_calls', 'model_name': 'openai/gpt-oss-120b'}, id='lc_run--019fa04a-0d2c-7192-a325-ad137e5dcbe9-0', tool_calls=[{'name': 'bash', 'args': {'command': 'cat /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics'}, 'id': 'chatcmpl-tool-9e44a8005571aad3', 'type': 'tool_call'}], invalid_tool_calls=[], usage_metadata={'input_tokens': 329, 'output_tokens': 63, 'total_tokens': 392}, role='assistant'), ToolMessage(content='Error (exit 1): cat: /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics: Is a directory\n\n', name='bash', id='76bd5469-a1ef-4dcb-bf5e-fab9f7e2b4f1', tool_call_id='chatcmpl-tool-9e44a8005571aad3'), AIMessage(content='', additional_kwargs={'reasoning_content': 'List directory.', 'reasoning': 'List directory.', '_reasoning_api_fields': ['reasoning_content', 'reasoning'], 'tool_calls': [{'id': 'chatcmpl-tool-9903330e1eec7a92', 'type': 'function', 'function': {'name': 'bash', 'arguments': '{"command": "ls -R /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics"}'}}]}, response_metadata={'role': 'assistant', 'content': None, 'refusal': None, 'annotations': None, 'audio': None, 'function_call': None, 'tool_calls': [{'id': 'chatcmpl-tool-9903330e1eec7a92', 'type': 'function', 'function': {'name': 'bash', 'arguments': '{"command": "ls -R /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics"}'}}], 'reasoning': 'List directory.', 'reasoning_content': 'List directory.', 'token_usage': {'prompt_tokens': 441, 'total_tokens': 494, 'completion_tokens': 53, 'prompt_tokens_details': None}, 'finish_reason': 'tool_calls', 'model_name': 'openai/gpt-oss-120b'}, id='lc_run--019fa04a-194a-7743-a708-7de5fa83b639-0', tool_calls=[{'name': 'bash', 'args': {'command': 'ls -R /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics'}, 'id': 'chatcmpl-tool-9903330e1eec7a92', 'type': 'tool_call'}], invalid_tool_calls=[], usage_metadata={'input_tokens': 441, 'output_tokens': 53, 'total_tokens': 494}, role='assistant'), ToolMessage(content='/agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics:\nSKILL.md\n', name='bash', id='ed8e9aa5-aa59-4722-8156-80a01587aa38', tool_call_id='chatcmpl-tool-9903330e1eec7a92'), AIMessage(content='', additional_kwargs={'reasoning_content': 'Open SKILL.md.', 'reasoning': 'Open SKILL.md.', '_reasoning_api_fields': ['reasoning_content', 'reasoning'], 'tool_calls': [{'id': 'chatcmpl-tool-84097b9c272c6217', 'type': 'function', 'function': {'name': 'bash', 'arguments': '{"command": "sed -n \'1,200p\' /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics/SKILL.md"}'}}]}, response_metadata={'role': 'assistant', 'content': None, 'refusal': None, 'annotations': None, 'audio': None, 'function_call': None, 'tool_calls': [{'id': 'chatcmpl-tool-84097b9c272c6217', 'type': 'function', 'function': {'name': 'bash', 'arguments': '{"command": "sed -n \'1,200p\' /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics/SKILL.md"}'}}], 'reasoning': 'Open SKILL.md.', 'reasoning_content': 'Open SKILL.md.', 'token_usage': {'prompt_tokens': 534, 'total_tokens': 598, 'completion_tokens': 64, 'prompt_tokens_details': None}, 'finish_reason': 'tool_calls', 'model_name': 'openai/gpt-oss-120b'}, id='lc_run--019fa04a-1fd1-7b40-b8de-6e31a0d7a6e4-0', tool_calls=[{'name': 'bash', 'args': {'command': "sed -n '1,200p' /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics/SKILL.md"}, 'id': 'chatcmpl-tool-84097b9c272c6217', 'type': 'tool_call'}], invalid_tool_calls=[], usage_metadata={'input_tokens': 534, 'output_tokens': 64, 'total_tokens': 598}, role='assistant')], 'skills_metadata': [SkillProperties(name='sales-analytics', description='Database schema and business logic for sales data analysis including customers, orders, and revenue.', license=None, compatibility=None, allowed_tools=None, metadata=None)]}
+[updates] {'tools': {'messages': [ToolMessage(content='only "ls","cat" and "sqlite3" commands are allowed', name='bash', id='61c98dd0-8208-438f-9733-1fa8c676fc8d', tool_call_id='chatcmpl-tool-84097b9c272c6217')]}}
+[values] {'messages': [HumanMessage(content='Write a SQL query to find all customers who made orders over $1000 in the last month', additional_kwargs={}, response_metadata={}, id='e0169f2c-cdd5-4d61-b584-df2dd8ec170c'), AIMessage(content='', additional_kwargs={'reasoning_content': "We need to read the skill file to understand schema. Let's open the skill.", 'reasoning': "We need to read the skill file to understand schema. Let's open the skill.", '_reasoning_api_fields': ['reasoning_content', 'reasoning'], 'tool_calls': [{'id': 'chatcmpl-tool-9e44a8005571aad3', 'type': 'function', 'function': {'name': 'bash', 'arguments': '{"command": "cat /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics"}'}}]}, response_metadata={'role': 'assistant', 'content': None, 'refusal': None, 'annotations': None, 'audio': None, 'function_call': None, 'tool_calls': [{'id': 'chatcmpl-tool-9e44a8005571aad3', 'type': 'function', 'function': {'name': 'bash', 'arguments': '{"command": "cat /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics"}'}}], 'reasoning': "We need to read the skill file to understand schema. Let's open the skill.", 'reasoning_content': "We need to read the skill file to understand schema. Let's open the skill.", 'token_usage': {'prompt_tokens': 329, 'total_tokens': 392, 'completion_tokens': 63, 'prompt_tokens_details': None}, 'finish_reason': 'tool_calls', 'model_name': 'openai/gpt-oss-120b'}, id='lc_run--019fa04a-0d2c-7192-a325-ad137e5dcbe9-0', tool_calls=[{'name': 'bash', 'args': {'command': 'cat /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics'}, 'id': 'chatcmpl-tool-9e44a8005571aad3', 'type': 'tool_call'}], invalid_tool_calls=[], usage_metadata={'input_tokens': 329, 'output_tokens': 63, 'total_tokens': 392}, role='assistant'), ToolMessage(content='Error (exit 1): cat: /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics: Is a directory\n\n', name='bash', id='76bd5469-a1ef-4dcb-bf5e-fab9f7e2b4f1', tool_call_id='chatcmpl-tool-9e44a8005571aad3'), AIMessage(content='', additional_kwargs={'reasoning_content': 'List directory.', 'reasoning': 'List directory.', '_reasoning_api_fields': ['reasoning_content', 'reasoning'], 'tool_calls': [{'id': 'chatcmpl-tool-9903330e1eec7a92', 'type': 'function', 'function': {'name': 'bash', 'arguments': '{"command": "ls -R /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics"}'}}]}, response_metadata={'role': 'assistant', 'content': None, 'refusal': None, 'annotations': None, 'audio': None, 'function_call': None, 'tool_calls': [{'id': 'chatcmpl-tool-9903330e1eec7a92', 'type': 'function', 'function': {'name': 'bash', 'arguments': '{"command": "ls -R /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics"}'}}], 'reasoning': 'List directory.', 'reasoning_content': 'List directory.', 'token_usage': {'prompt_tokens': 441, 'total_tokens': 494, 'completion_tokens': 53, 'prompt_tokens_details': None}, 'finish_reason': 'tool_calls', 'model_name': 'openai/gpt-oss-120b'}, id='lc_run--019fa04a-194a-7743-a708-7de5fa83b639-0', tool_calls=[{'name': 'bash', 'args': {'command': 'ls -R /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics'}, 'id': 'chatcmpl-tool-9903330e1eec7a92', 'type': 'tool_call'}], invalid_tool_calls=[], usage_metadata={'input_tokens': 441, 'output_tokens': 53, 'total_tokens': 494}, role='assistant'), ToolMessage(content='/agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics:\nSKILL.md\n', name='bash', id='ed8e9aa5-aa59-4722-8156-80a01587aa38', tool_call_id='chatcmpl-tool-9903330e1eec7a92'), AIMessage(content='', additional_kwargs={'reasoning_content': 'Open SKILL.md.', 'reasoning': 'Open SKILL.md.', '_reasoning_api_fields': ['reasoning_content', 'reasoning'], 'tool_calls': [{'id': 'chatcmpl-tool-84097b9c272c6217', 'type': 'function', 'function': {'name': 'bash', 'arguments': '{"command": "sed -n \'1,200p\' /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics/SKILL.md"}'}}]}, response_metadata={'role': 'assistant', 'content': None, 'refusal': None, 'annotations': None, 'audio': None, 'function_call': None, 'tool_calls': [{'id': 'chatcmpl-tool-84097b9c272c6217', 'type': 'function', 'function': {'name': 'bash', 'arguments': '{"command": "sed -n \'1,200p\' /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics/SKILL.md"}'}}], 'reasoning': 'Open SKILL.md.', 'reasoning_content': 'Open SKILL.md.', 'token_usage': {'prompt_tokens': 534, 'total_tokens': 598, 'completion_tokens': 64, 'prompt_tokens_details': None}, 'finish_reason': 'tool_calls', 'model_name': 'openai/gpt-oss-120b'}, id='lc_run--019fa04a-1fd1-7b40-b8de-6e31a0d7a6e4-0', tool_calls=[{'name': 'bash', 'args': {'command': "sed -n '1,200p' /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics/SKILL.md"}, 'id': 'chatcmpl-tool-84097b9c272c6217', 'type': 'tool_call'}], invalid_tool_calls=[], usage_metadata={'input_tokens': 534, 'output_tokens': 64, 'total_tokens': 598}, role='assistant'), ToolMessage(content='only "ls","cat" and "sqlite3" commands are allowed', name='bash', id='61c98dd0-8208-438f-9733-1fa8c676fc8d', tool_call_id='chatcmpl-tool-84097b9c272c6217')], 'skills_metadata': [SkillProperties(name='sales-analytics', description='Database schema and business logic for sales data analysis including customers, orders, and revenue.', license=None, compatibility=None, allowed_tools=None, metadata=None)]}
+[updates] {'model': {'messages': [AIMessage(content='', additional_kwargs={'reasoning_content': 'The skill file may be restricted. The error indicates limited commands: only ls, cat, sqlite3 allowed. We used cat and ls earlier, fine. Trying again maybe cat works. Let\'s try cat with full path.\n{"command":"cat /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics/SKILL.md"}', 'reasoning': 'The skill file may be restricted. The error indicates limited commands: only ls, cat, sqlite3 allowed. We used cat and ls earlier, fine. Trying again maybe cat works. Let\'s try cat with full path.\n{"command":"cat /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics/SKILL.md"}', '_reasoning_api_fields': ['reasoning_content', 'reasoning'], 'tool_calls': [{'id': 'chatcmpl-tool-aba355edc096ede0', 'type': 'function', 'function': {'name': 'bash', 'arguments': '{"command":"cat /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics/SKILL.md"}'}}]}, response_metadata={'role': 'assistant', 'content': None, 'refusal': None, 'annotations': None, 'audio': None, 'function_call': None, 'tool_calls': [{'id': 'chatcmpl-tool-aba355edc096ede0', 'type': 'function', 'function': {'name': 'bash', 'arguments': '{"command":"cat /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics/SKILL.md"}'}}], 'reasoning': 'The skill file may be restricted. The error indicates limited commands: only ls, cat, sqlite3 allowed. We used cat and ls earlier, fine. Trying again maybe cat works. Let\'s try cat with full path.\n{"command":"cat /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics/SKILL.md"}', 'reasoning_content': 'The skill file may be restricted. The error indicates limited commands: only ls, cat, sqlite3 allowed. We used cat and ls earlier, fine. Trying again maybe cat works. Let\'s try cat with full path.\n{"command":"cat /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics/SKILL.md"}', 'token_usage': {'prompt_tokens': 625, 'total_tokens': 717, 'completion_tokens': 92, 'prompt_tokens_details': None}, 'finish_reason': 'tool_calls', 'model_name': 'openai/gpt-oss-120b'}, id='lc_run--019fa04a-24e6-7cb2-9bcf-d54d31777bbc-0', tool_calls=[{'name': 'bash', 'args': {'command': 'cat /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics/SKILL.md'}, 'id': 'chatcmpl-tool-aba355edc096ede0', 'type': 'tool_call'}], invalid_tool_calls=[], usage_metadata={'input_tokens': 625, 'output_tokens': 92, 'total_tokens': 717}, role='assistant')]}}
+[values] {'messages': [HumanMessage(content='Write a SQL query to find all customers who made orders over $1000 in the last month', additional_kwargs={}, response_metadata={}, id='e0169f2c-cdd5-4d61-b584-df2dd8ec170c'), AIMessage(content='', additional_kwargs={'reasoning_content': "We need to read the skill file to understand schema. Let's open the skill.", 'reasoning': "We need to read the skill file to understand schema. Let's open the skill.", '_reasoning_api_fields': ['reasoning_content', 'reasoning'], 'tool_calls': [{'id': 'chatcmpl-tool-9e44a8005571aad3', 'type': 'function', 'function': {'name': 'bash', 'arguments': '{"command": "cat /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics"}'}}]}, response_metadata={'role': 'assistant', 'content': None, 'refusal': None, 'annotations': None, 'audio': None, 'function_call': None, 'tool_calls': [{'id': 'chatcmpl-tool-9e44a8005571aad3', 'type': 'function', 'function': {'name': 'bash', 'arguments': '{"command": "cat /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics"}'}}], 'reasoning': "We need to read the skill file to understand schema. Let's open the skill.", 'reasoning_content': "We need to read the skill file to understand schema. Let's open the skill.", 'token_usage': {'prompt_tokens': 329, 'total_tokens': 392, 'completion_tokens': 63, 'prompt_tokens_details': None}, 'finish_reason': 'tool_calls', 'model_name': 'openai/gpt-oss-120b'}, id='lc_run--019fa04a-0d2c-7192-a325-ad137e5dcbe9-0', tool_calls=[{'name': 'bash', 'args': {'command': 'cat /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics'}, 'id': 'chatcmpl-tool-9e44a8005571aad3', 'type': 'tool_call'}], invalid_tool_calls=[], usage_metadata={'input_tokens': 329, 'output_tokens': 63, 'total_tokens': 392}, role='assistant'), ToolMessage(content='Error (exit 1): cat: /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics: Is a directory\n\n', name='bash', id='76bd5469-a1ef-4dcb-bf5e-fab9f7e2b4f1', tool_call_id='chatcmpl-tool-9e44a8005571aad3'), AIMessage(content='', additional_kwargs={'reasoning_content': 'List directory.', 'reasoning': 'List directory.', '_reasoning_api_fields': ['reasoning_content', 'reasoning'], 'tool_calls': [{'id': 'chatcmpl-tool-9903330e1eec7a92', 'type': 'function', 'function': {'name': 'bash', 'arguments': '{"command": "ls -R /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics"}'}}]}, response_metadata={'role': 'assistant', 'content': None, 'refusal': None, 'annotations': None, 'audio': None, 'function_call': None, 'tool_calls': [{'id': 'chatcmpl-tool-9903330e1eec7a92', 'type': 'function', 'function': {'name': 'bash', 'arguments': '{"command": "ls -R /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics"}'}}], 'reasoning': 'List directory.', 'reasoning_content': 'List directory.', 'token_usage': {'prompt_tokens': 441, 'total_tokens': 494, 'completion_tokens': 53, 'prompt_tokens_details': None}, 'finish_reason': 'tool_calls', 'model_name': 'openai/gpt-oss-120b'}, id='lc_run--019fa04a-194a-7743-a708-7de5fa83b639-0', tool_calls=[{'name': 'bash', 'args': {'command': 'ls -R /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics'}, 'id': 'chatcmpl-tool-9903330e1eec7a92', 'type': 'tool_call'}], invalid_tool_calls=[], usage_metadata={'input_tokens': 441, 'output_tokens': 53, 'total_tokens': 494}, role='assistant'), ToolMessage(content='/agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics:\nSKILL.md\n', name='bash', id='ed8e9aa5-aa59-4722-8156-80a01587aa38', tool_call_id='chatcmpl-tool-9903330e1eec7a92'), AIMessage(content='', additional_kwargs={'reasoning_content': 'Open SKILL.md.', 'reasoning': 'Open SKILL.md.', '_reasoning_api_fields': ['reasoning_content', 'reasoning'], 'tool_calls': [{'id': 'chatcmpl-tool-84097b9c272c6217', 'type': 'function', 'function': {'name': 'bash', 'arguments': '{"command": "sed -n \'1,200p\' /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics/SKILL.md"}'}}]}, response_metadata={'role': 'assistant', 'content': None, 'refusal': None, 'annotations': None, 'audio': None, 'function_call': None, 'tool_calls': [{'id': 'chatcmpl-tool-84097b9c272c6217', 'type': 'function', 'function': {'name': 'bash', 'arguments': '{"command": "sed -n \'1,200p\' /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics/SKILL.md"}'}}], 'reasoning': 'Open SKILL.md.', 'reasoning_content': 'Open SKILL.md.', 'token_usage': {'prompt_tokens': 534, 'total_tokens': 598, 'completion_tokens': 64, 'prompt_tokens_details': None}, 'finish_reason': 'tool_calls', 'model_name': 'openai/gpt-oss-120b'}, id='lc_run--019fa04a-1fd1-7b40-b8de-6e31a0d7a6e4-0', tool_calls=[{'name': 'bash', 'args': {'command': "sed -n '1,200p' /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics/SKILL.md"}, 'id': 'chatcmpl-tool-84097b9c272c6217', 'type': 'tool_call'}], invalid_tool_calls=[], usage_metadata={'input_tokens': 534, 'output_tokens': 64, 'total_tokens': 598}, role='assistant'), ToolMessage(content='only "ls","cat" and "sqlite3" commands are allowed', name='bash', id='61c98dd0-8208-438f-9733-1fa8c676fc8d', tool_call_id='chatcmpl-tool-84097b9c272c6217'), AIMessage(content='', additional_kwargs={'reasoning_content': 'The skill file may be restricted. The error indicates limited commands: only ls, cat, sqlite3 allowed. We used cat and ls earlier, fine. Trying again maybe cat works. Let\'s try cat with full path.\n{"command":"cat /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics/SKILL.md"}', 'reasoning': 'The skill file may be restricted. The error indicates limited commands: only ls, cat, sqlite3 allowed. We used cat and ls earlier, fine. Trying again maybe cat works. Let\'s try cat with full path.\n{"command":"cat /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics/SKILL.md"}', '_reasoning_api_fields': ['reasoning_content', 'reasoning'], 'tool_calls': [{'id': 'chatcmpl-tool-aba355edc096ede0', 'type': 'function', 'function': {'name': 'bash', 'arguments': '{"command":"cat /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics/SKILL.md"}'}}]}, response_metadata={'role': 'assistant', 'content': None, 'refusal': None, 'annotations': None, 'audio': None, 'function_call': None, 'tool_calls': [{'id': 'chatcmpl-tool-aba355edc096ede0', 'type': 'function', 'function': {'name': 'bash', 'arguments': '{"command":"cat /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics/SKILL.md"}'}}], 'reasoning': 'The skill file may be restricted. The error indicates limited commands: only ls, cat, sqlite3 allowed. We used cat and ls earlier, fine. Trying again maybe cat works. Let\'s try cat with full path.\n{"command":"cat /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics/SKILL.md"}', 'reasoning_content': 'The skill file may be restricted. The error indicates limited commands: only ls, cat, sqlite3 allowed. We used cat and ls earlier, fine. Trying again maybe cat works. Let\'s try cat with full path.\n{"command":"cat /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics/SKILL.md"}', 'token_usage': {'prompt_tokens': 625, 'total_tokens': 717, 'completion_tokens': 92, 'prompt_tokens_details': None}, 'finish_reason': 'tool_calls', 'model_name': 'openai/gpt-oss-120b'}, id='lc_run--019fa04a-24e6-7cb2-9bcf-d54d31777bbc-0', tool_calls=[{'name': 'bash', 'args': {'command': 'cat /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics/SKILL.md'}, 'id': 'chatcmpl-tool-aba355edc096ede0', 'type': 'tool_call'}], invalid_tool_calls=[], usage_metadata={'input_tokens': 625, 'output_tokens': 92, 'total_tokens': 717}, role='assistant')], 'skills_metadata': [SkillProperties(name='sales-analytics', description='Database schema and business logic for sales data analysis including customers, orders, and revenue.', license=None, compatibility=None, allowed_tools=None, metadata=None)]}
+[updates] {'tools': {'messages': [ToolMessage(content="---\nname: sales-analytics\ndescription: Database schema and business logic for sales data analysis including customers, orders, and revenue.\n---\n# Sales Analytics Schema\n\n## Tables\n\n### customers\n- customer_id (PRIMARY KEY)\n- name\n- email\n- signup_date\n- status (active/inactive)\n- customer_tier (bronze/silver/gold/platinum)\n\n### orders\n- order_id (PRIMARY KEY)\n- customer_id (FOREIGN KEY -> customers)\n- order_date\n- status (pending/completed/cancelled/refunded)\n- total_amount\n- sales_region (north/south/east/west)\n\n### order_items\n- item_id (PRIMARY KEY)\n- order_id (FOREIGN KEY -> orders)\n- product_id\n- quantity\n- unit_price\n- discount_percent\n\n## Business Logic\n\n**Active customers**: status = 'active' AND signup_date <= CURRENT_DATE - INTERVAL '90 days'\n\n**Revenue calculation**: Only count orders with status = 'completed'. Use total_amount from orders table, which already accounts for discounts.\n\n**Customer lifetime value (CLV)**: Sum of all completed order amounts for a customer.\n\n**High-value orders**: Orders with total_amount > 1000\n\n## Example Query\n\n-- Get top 10 customers by revenue in the last quarter\nSELECT\n    c.customer_id,\n    c.name,\n    c.customer_tier,\n    SUM(o.total_amount) as total_revenue\nFROM customers c\nJOIN orders o ON c.customer_id = o.customer_id\nWHERE o.status = 'completed'\n  AND o.order_date >= CURRENT_DATE - INTERVAL '3 months'\nGROUP BY c.customer_id, c.name, c.customer_tier\nORDER BY total_revenue DESC\nLIMIT 10\n", name='bash', id='60fa14f9-272a-462f-b147-8e73744495fa', tool_call_id='chatcmpl-tool-aba355edc096ede0')]}}
+[values] {'messages': [HumanMessage(content='Write a SQL query to find all customers who made orders over $1000 in the last month', additional_kwargs={}, response_metadata={}, id='e0169f2c-cdd5-4d61-b584-df2dd8ec170c'), AIMessage(content='', additional_kwargs={'reasoning_content': "We need to read the skill file to understand schema. Let's open the skill.", 'reasoning': "We need to read the skill file to understand schema. Let's open the skill.", '_reasoning_api_fields': ['reasoning_content', 'reasoning'], 'tool_calls': [{'id': 'chatcmpl-tool-9e44a8005571aad3', 'type': 'function', 'function': {'name': 'bash', 'arguments': '{"command": "cat /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics"}'}}]}, response_metadata={'role': 'assistant', 'content': None, 'refusal': None, 'annotations': None, 'audio': None, 'function_call': None, 'tool_calls': [{'id': 'chatcmpl-tool-9e44a8005571aad3', 'type': 'function', 'function': {'name': 'bash', 'arguments': '{"command": "cat /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics"}'}}], 'reasoning': "We need to read the skill file to understand schema. Let's open the skill.", 'reasoning_content': "We need to read the skill file to understand schema. Let's open the skill.", 'token_usage': {'prompt_tokens': 329, 'total_tokens': 392, 'completion_tokens': 63, 'prompt_tokens_details': None}, 'finish_reason': 'tool_calls', 'model_name': 'openai/gpt-oss-120b'}, id='lc_run--019fa04a-0d2c-7192-a325-ad137e5dcbe9-0', tool_calls=[{'name': 'bash', 'args': {'command': 'cat /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics'}, 'id': 'chatcmpl-tool-9e44a8005571aad3', 'type': 'tool_call'}], invalid_tool_calls=[], usage_metadata={'input_tokens': 329, 'output_tokens': 63, 'total_tokens': 392}, role='assistant'), ToolMessage(content='Error (exit 1): cat: /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics: Is a directory\n\n', name='bash', id='76bd5469-a1ef-4dcb-bf5e-fab9f7e2b4f1', tool_call_id='chatcmpl-tool-9e44a8005571aad3'), AIMessage(content='', additional_kwargs={'reasoning_content': 'List directory.', 'reasoning': 'List directory.', '_reasoning_api_fields': ['reasoning_content', 'reasoning'], 'tool_calls': [{'id': 'chatcmpl-tool-9903330e1eec7a92', 'type': 'function', 'function': {'name': 'bash', 'arguments': '{"command": "ls -R /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics"}'}}]}, response_metadata={'role': 'assistant', 'content': None, 'refusal': None, 'annotations': None, 'audio': None, 'function_call': None, 'tool_calls': [{'id': 'chatcmpl-tool-9903330e1eec7a92', 'type': 'function', 'function': {'name': 'bash', 'arguments': '{"command": "ls -R /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics"}'}}], 'reasoning': 'List directory.', 'reasoning_content': 'List directory.', 'token_usage': {'prompt_tokens': 441, 'total_tokens': 494, 'completion_tokens': 53, 'prompt_tokens_details': None}, 'finish_reason': 'tool_calls', 'model_name': 'openai/gpt-oss-120b'}, id='lc_run--019fa04a-194a-7743-a708-7de5fa83b639-0', tool_calls=[{'name': 'bash', 'args': {'command': 'ls -R /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics'}, 'id': 'chatcmpl-tool-9903330e1eec7a92', 'type': 'tool_call'}], invalid_tool_calls=[], usage_metadata={'input_tokens': 441, 'output_tokens': 53, 'total_tokens': 494}, role='assistant'), ToolMessage(content='/agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics:\nSKILL.md\n', name='bash', id='ed8e9aa5-aa59-4722-8156-80a01587aa38', tool_call_id='chatcmpl-tool-9903330e1eec7a92'), AIMessage(content='', additional_kwargs={'reasoning_content': 'Open SKILL.md.', 'reasoning': 'Open SKILL.md.', '_reasoning_api_fields': ['reasoning_content', 'reasoning'], 'tool_calls': [{'id': 'chatcmpl-tool-84097b9c272c6217', 'type': 'function', 'function': {'name': 'bash', 'arguments': '{"command": "sed -n \'1,200p\' /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics/SKILL.md"}'}}]}, response_metadata={'role': 'assistant', 'content': None, 'refusal': None, 'annotations': None, 'audio': None, 'function_call': None, 'tool_calls': [{'id': 'chatcmpl-tool-84097b9c272c6217', 'type': 'function', 'function': {'name': 'bash', 'arguments': '{"command": "sed -n \'1,200p\' /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics/SKILL.md"}'}}], 'reasoning': 'Open SKILL.md.', 'reasoning_content': 'Open SKILL.md.', 'token_usage': {'prompt_tokens': 534, 'total_tokens': 598, 'completion_tokens': 64, 'prompt_tokens_details': None}, 'finish_reason': 'tool_calls', 'model_name': 'openai/gpt-oss-120b'}, id='lc_run--019fa04a-1fd1-7b40-b8de-6e31a0d7a6e4-0', tool_calls=[{'name': 'bash', 'args': {'command': "sed -n '1,200p' /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics/SKILL.md"}, 'id': 'chatcmpl-tool-84097b9c272c6217', 'type': 'tool_call'}], invalid_tool_calls=[], usage_metadata={'input_tokens': 534, 'output_tokens': 64, 'total_tokens': 598}, role='assistant'), ToolMessage(content='only "ls","cat" and "sqlite3" commands are allowed', name='bash', id='61c98dd0-8208-438f-9733-1fa8c676fc8d', tool_call_id='chatcmpl-tool-84097b9c272c6217'), AIMessage(content='', additional_kwargs={'reasoning_content': 'The skill file may be restricted. The error indicates limited commands: only ls, cat, sqlite3 allowed. We used cat and ls earlier, fine. Trying again maybe cat works. Let\'s try cat with full path.\n{"command":"cat /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics/SKILL.md"}', 'reasoning': 'The skill file may be restricted. The error indicates limited commands: only ls, cat, sqlite3 allowed. We used cat and ls earlier, fine. Trying again maybe cat works. Let\'s try cat with full path.\n{"command":"cat /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics/SKILL.md"}', '_reasoning_api_fields': ['reasoning_content', 'reasoning'], 'tool_calls': [{'id': 'chatcmpl-tool-aba355edc096ede0', 'type': 'function', 'function': {'name': 'bash', 'arguments': '{"command":"cat /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics/SKILL.md"}'}}]}, response_metadata={'role': 'assistant', 'content': None, 'refusal': None, 'annotations': None, 'audio': None, 'function_call': None, 'tool_calls': [{'id': 'chatcmpl-tool-aba355edc096ede0', 'type': 'function', 'function': {'name': 'bash', 'arguments': '{"command":"cat /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics/SKILL.md"}'}}], 'reasoning': 'The skill file may be restricted. The error indicates limited commands: only ls, cat, sqlite3 allowed. We used cat and ls earlier, fine. Trying again maybe cat works. Let\'s try cat with full path.\n{"command":"cat /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics/SKILL.md"}', 'reasoning_content': 'The skill file may be restricted. The error indicates limited commands: only ls, cat, sqlite3 allowed. We used cat and ls earlier, fine. Trying again maybe cat works. Let\'s try cat with full path.\n{"command":"cat /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics/SKILL.md"}', 'token_usage': {'prompt_tokens': 625, 'total_tokens': 717, 'completion_tokens': 92, 'prompt_tokens_details': None}, 'finish_reason': 'tool_calls', 'model_name': 'openai/gpt-oss-120b'}, id='lc_run--019fa04a-24e6-7cb2-9bcf-d54d31777bbc-0', tool_calls=[{'name': 'bash', 'args': {'command': 'cat /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics/SKILL.md'}, 'id': 'chatcmpl-tool-aba355edc096ede0', 'type': 'tool_call'}], invalid_tool_calls=[], usage_metadata={'input_tokens': 625, 'output_tokens': 92, 'total_tokens': 717}, role='assistant'), ToolMessage(content="---\nname: sales-analytics\ndescription: Database schema and business logic for sales data analysis including customers, orders, and revenue.\n---\n# Sales Analytics Schema\n\n## Tables\n\n### customers\n- customer_id (PRIMARY KEY)\n- name\n- email\n- signup_date\n- status (active/inactive)\n- customer_tier (bronze/silver/gold/platinum)\n\n### orders\n- order_id (PRIMARY KEY)\n- customer_id (FOREIGN KEY -> customers)\n- order_date\n- status (pending/completed/cancelled/refunded)\n- total_amount\n- sales_region (north/south/east/west)\n\n### order_items\n- item_id (PRIMARY KEY)\n- order_id (FOREIGN KEY -> orders)\n- product_id\n- quantity\n- unit_price\n- discount_percent\n\n## Business Logic\n\n**Active customers**: status = 'active' AND signup_date <= CURRENT_DATE - INTERVAL '90 days'\n\n**Revenue calculation**: Only count orders with status = 'completed'. Use total_amount from orders table, which already accounts for discounts.\n\n**Customer lifetime value (CLV)**: Sum of all completed order amounts for a customer.\n\n**High-value orders**: Orders with total_amount > 1000\n\n## Example Query\n\n-- Get top 10 customers by revenue in the last quarter\nSELECT\n    c.customer_id,\n    c.name,\n    c.customer_tier,\n    SUM(o.total_amount) as total_revenue\nFROM customers c\nJOIN orders o ON c.customer_id = o.customer_id\nWHERE o.status = 'completed'\n  AND o.order_date >= CURRENT_DATE - INTERVAL '3 months'\nGROUP BY c.customer_id, c.name, c.customer_tier\nORDER BY total_revenue DESC\nLIMIT 10\n", name='bash', id='60fa14f9-272a-462f-b147-8e73744495fa', tool_call_id='chatcmpl-tool-aba355edc096ede0')], 'skills_metadata': [SkillProperties(name='sales-analytics', description='Database schema and business logic for sales data analysis including customers, orders, and revenue.', license=None, compatibility=None, allowed_tools=None, metadata=None)]}
+[updates] {'model': {'messages': [AIMessage(content="SELECT\n    c.customer_id,\n    c.name,\n    c.email,\n    c.customer_tier\nFROM customers AS c\nJOIN orders AS o\n    ON c.customer_id = o.customer_id\nWHERE o.status = 'completed'\n  AND o.total_amount > 1000\n  AND o.order_date >= CURRENT_DATE - INTERVAL '1 month'\nGROUP BY c.customer_id, c.name, c.email, c.customer_tier;", additional_kwargs={'reasoning_content': 'Now we need SQL to find all customers who made orders over $1000 in the last month. Business logic: consider orders with status=\'completed\'? Probably yes. The requirement: "made orders over $1000 in the last month". Could mean any order >1000 in last month. Probably need distinct customers who have at least one order with total_amount > 1000, order_date within last month (30 days) and status=completed. Return customer details.\n\nWe\'ll write:\n\nSELECT c.customer_id, c.name, c.email, c.customer_tier\nFROM customers c\nJOIN orders o ON c.customer_id = o.customer_id\nWHERE o.status=\'completed\'\n  AND o.total_amount > 1000\n  AND o.order_date >= CURRENT_DATE - INTERVAL \'1 month\'\nGROUP BY c.customer_id, c.name, c.email, c.customer_tier;\n\nOr maybe use DISTINCT.\n\nReturn all columns? We\'ll just list basic. According to instruction, only return the SQL query.', 'reasoning': 'Now we need SQL to find all customers who made orders over $1000 in the last month. Business logic: consider orders with status=\'completed\'? Probably yes. The requirement: "made orders over $1000 in the last month". Could mean any order >1000 in last month. Probably need distinct customers who have at least one order with total_amount > 1000, order_date within last month (30 days) and status=completed. Return customer details.\n\nWe\'ll write:\n\nSELECT c.customer_id, c.name, c.email, c.customer_tier\nFROM customers c\nJOIN orders o ON c.customer_id = o.customer_id\nWHERE o.status=\'completed\'\n  AND o.total_amount > 1000\n  AND o.order_date >= CURRENT_DATE - INTERVAL \'1 month\'\nGROUP BY c.customer_id, c.name, c.email, c.customer_tier;\n\nOr maybe use DISTINCT.\n\nReturn all columns? We\'ll just list basic. According to instruction, only return the SQL query.', '_reasoning_api_fields': ['reasoning_content', 'reasoning']}, response_metadata={'role': 'assistant', 'content': "SELECT\n    c.customer_id,\n    c.name,\n    c.email,\n    c.customer_tier\nFROM customers AS c\nJOIN orders AS o\n    ON c.customer_id = o.customer_id\nWHERE o.status = 'completed'\n  AND o.total_amount > 1000\n  AND o.order_date >= CURRENT_DATE - INTERVAL '1 month'\nGROUP BY c.customer_id, c.name, c.email, c.customer_tier;", 'refusal': None, 'annotations': None, 'audio': None, 'function_call': None, 'tool_calls': [], 'reasoning': 'Now we need SQL to find all customers who made orders over $1000 in the last month. Business logic: consider orders with status=\'completed\'? Probably yes. The requirement: "made orders over $1000 in the last month". Could mean any order >1000 in last month. Probably need distinct customers who have at least one order with total_amount > 1000, order_date within last month (30 days) and status=completed. Return customer details.\n\nWe\'ll write:\n\nSELECT c.customer_id, c.name, c.email, c.customer_tier\nFROM customers c\nJOIN orders o ON c.customer_id = o.customer_id\nWHERE o.status=\'completed\'\n  AND o.total_amount > 1000\n  AND o.order_date >= CURRENT_DATE - INTERVAL \'1 month\'\nGROUP BY c.customer_id, c.name, c.email, c.customer_tier;\n\nOr maybe use DISTINCT.\n\nReturn all columns? We\'ll just list basic. According to instruction, only return the SQL query.', 'reasoning_content': 'Now we need SQL to find all customers who made orders over $1000 in the last month. Business logic: consider orders with status=\'completed\'? Probably yes. The requirement: "made orders over $1000 in the last month". Could mean any order >1000 in last month. Probably need distinct customers who have at least one order with total_amount > 1000, order_date within last month (30 days) and status=completed. Return customer details.\n\nWe\'ll write:\n\nSELECT c.customer_id, c.name, c.email, c.customer_tier\nFROM customers c\nJOIN orders o ON c.customer_id = o.customer_id\nWHERE o.status=\'completed\'\n  AND o.total_amount > 1000\n  AND o.order_date >= CURRENT_DATE - INTERVAL \'1 month\'\nGROUP BY c.customer_id, c.name, c.email, c.customer_tier;\n\nOr maybe use DISTINCT.\n\nReturn all columns? We\'ll just list basic. According to instruction, only return the SQL query.', 'token_usage': {'prompt_tokens': 1124, 'total_tokens': 1426, 'completion_tokens': 302, 'prompt_tokens_details': None}, 'finish_reason': 'stop', 'model_name': 'openai/gpt-oss-120b'}, id='lc_run--019fa04a-299e-7e92-ac16-22faf452cbf7-0', tool_calls=[], invalid_tool_calls=[], usage_metadata={'input_tokens': 1124, 'output_tokens': 302, 'total_tokens': 1426}, role='assistant')]}}
+[values] {'messages': [HumanMessage(content='Write a SQL query to find all customers who made orders over $1000 in the last month', additional_kwargs={}, response_metadata={}, id='e0169f2c-cdd5-4d61-b584-df2dd8ec170c'), AIMessage(content='', additional_kwargs={'reasoning_content': "We need to read the skill file to understand schema. Let's open the skill.", 'reasoning': "We need to read the skill file to understand schema. Let's open the skill.", '_reasoning_api_fields': ['reasoning_content', 'reasoning'], 'tool_calls': [{'id': 'chatcmpl-tool-9e44a8005571aad3', 'type': 'function', 'function': {'name': 'bash', 'arguments': '{"command": "cat /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics"}'}}]}, response_metadata={'role': 'assistant', 'content': None, 'refusal': None, 'annotations': None, 'audio': None, 'function_call': None, 'tool_calls': [{'id': 'chatcmpl-tool-9e44a8005571aad3', 'type': 'function', 'function': {'name': 'bash', 'arguments': '{"command": "cat /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics"}'}}], 'reasoning': "We need to read the skill file to understand schema. Let's open the skill.", 'reasoning_content': "We need to read the skill file to understand schema. Let's open the skill.", 'token_usage': {'prompt_tokens': 329, 'total_tokens': 392, 'completion_tokens': 63, 'prompt_tokens_details': None}, 'finish_reason': 'tool_calls', 'model_name': 'openai/gpt-oss-120b'}, id='lc_run--019fa04a-0d2c-7192-a325-ad137e5dcbe9-0', tool_calls=[{'name': 'bash', 'args': {'command': 'cat /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics'}, 'id': 'chatcmpl-tool-9e44a8005571aad3', 'type': 'tool_call'}], invalid_tool_calls=[], usage_metadata={'input_tokens': 329, 'output_tokens': 63, 'total_tokens': 392}, role='assistant'), ToolMessage(content='Error (exit 1): cat: /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics: Is a directory\n\n', name='bash', id='76bd5469-a1ef-4dcb-bf5e-fab9f7e2b4f1', tool_call_id='chatcmpl-tool-9e44a8005571aad3'), AIMessage(content='', additional_kwargs={'reasoning_content': 'List directory.', 'reasoning': 'List directory.', '_reasoning_api_fields': ['reasoning_content', 'reasoning'], 'tool_calls': [{'id': 'chatcmpl-tool-9903330e1eec7a92', 'type': 'function', 'function': {'name': 'bash', 'arguments': '{"command": "ls -R /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics"}'}}]}, response_metadata={'role': 'assistant', 'content': None, 'refusal': None, 'annotations': None, 'audio': None, 'function_call': None, 'tool_calls': [{'id': 'chatcmpl-tool-9903330e1eec7a92', 'type': 'function', 'function': {'name': 'bash', 'arguments': '{"command": "ls -R /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics"}'}}], 'reasoning': 'List directory.', 'reasoning_content': 'List directory.', 'token_usage': {'prompt_tokens': 441, 'total_tokens': 494, 'completion_tokens': 53, 'prompt_tokens_details': None}, 'finish_reason': 'tool_calls', 'model_name': 'openai/gpt-oss-120b'}, id='lc_run--019fa04a-194a-7743-a708-7de5fa83b639-0', tool_calls=[{'name': 'bash', 'args': {'command': 'ls -R /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics'}, 'id': 'chatcmpl-tool-9903330e1eec7a92', 'type': 'tool_call'}], invalid_tool_calls=[], usage_metadata={'input_tokens': 441, 'output_tokens': 53, 'total_tokens': 494}, role='assistant'), ToolMessage(content='/agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics:\nSKILL.md\n', name='bash', id='ed8e9aa5-aa59-4722-8156-80a01587aa38', tool_call_id='chatcmpl-tool-9903330e1eec7a92'), AIMessage(content='', additional_kwargs={'reasoning_content': 'Open SKILL.md.', 'reasoning': 'Open SKILL.md.', '_reasoning_api_fields': ['reasoning_content', 'reasoning'], 'tool_calls': [{'id': 'chatcmpl-tool-84097b9c272c6217', 'type': 'function', 'function': {'name': 'bash', 'arguments': '{"command": "sed -n \'1,200p\' /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics/SKILL.md"}'}}]}, response_metadata={'role': 'assistant', 'content': None, 'refusal': None, 'annotations': None, 'audio': None, 'function_call': None, 'tool_calls': [{'id': 'chatcmpl-tool-84097b9c272c6217', 'type': 'function', 'function': {'name': 'bash', 'arguments': '{"command": "sed -n \'1,200p\' /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics/SKILL.md"}'}}], 'reasoning': 'Open SKILL.md.', 'reasoning_content': 'Open SKILL.md.', 'token_usage': {'prompt_tokens': 534, 'total_tokens': 598, 'completion_tokens': 64, 'prompt_tokens_details': None}, 'finish_reason': 'tool_calls', 'model_name': 'openai/gpt-oss-120b'}, id='lc_run--019fa04a-1fd1-7b40-b8de-6e31a0d7a6e4-0', tool_calls=[{'name': 'bash', 'args': {'command': "sed -n '1,200p' /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics/SKILL.md"}, 'id': 'chatcmpl-tool-84097b9c272c6217', 'type': 'tool_call'}], invalid_tool_calls=[], usage_metadata={'input_tokens': 534, 'output_tokens': 64, 'total_tokens': 598}, role='assistant'), ToolMessage(content='only "ls","cat" and "sqlite3" commands are allowed', name='bash', id='61c98dd0-8208-438f-9733-1fa8c676fc8d', tool_call_id='chatcmpl-tool-84097b9c272c6217'), AIMessage(content='', additional_kwargs={'reasoning_content': 'The skill file may be restricted. The error indicates limited commands: only ls, cat, sqlite3 allowed. We used cat and ls earlier, fine. Trying again maybe cat works. Let\'s try cat with full path.\n{"command":"cat /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics/SKILL.md"}', 'reasoning': 'The skill file may be restricted. The error indicates limited commands: only ls, cat, sqlite3 allowed. We used cat and ls earlier, fine. Trying again maybe cat works. Let\'s try cat with full path.\n{"command":"cat /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics/SKILL.md"}', '_reasoning_api_fields': ['reasoning_content', 'reasoning'], 'tool_calls': [{'id': 'chatcmpl-tool-aba355edc096ede0', 'type': 'function', 'function': {'name': 'bash', 'arguments': '{"command":"cat /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics/SKILL.md"}'}}]}, response_metadata={'role': 'assistant', 'content': None, 'refusal': None, 'annotations': None, 'audio': None, 'function_call': None, 'tool_calls': [{'id': 'chatcmpl-tool-aba355edc096ede0', 'type': 'function', 'function': {'name': 'bash', 'arguments': '{"command":"cat /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics/SKILL.md"}'}}], 'reasoning': 'The skill file may be restricted. The error indicates limited commands: only ls, cat, sqlite3 allowed. We used cat and ls earlier, fine. Trying again maybe cat works. Let\'s try cat with full path.\n{"command":"cat /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics/SKILL.md"}', 'reasoning_content': 'The skill file may be restricted. The error indicates limited commands: only ls, cat, sqlite3 allowed. We used cat and ls earlier, fine. Trying again maybe cat works. Let\'s try cat with full path.\n{"command":"cat /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics/SKILL.md"}', 'token_usage': {'prompt_tokens': 625, 'total_tokens': 717, 'completion_tokens': 92, 'prompt_tokens_details': None}, 'finish_reason': 'tool_calls', 'model_name': 'openai/gpt-oss-120b'}, id='lc_run--019fa04a-24e6-7cb2-9bcf-d54d31777bbc-0', tool_calls=[{'name': 'bash', 'args': {'command': 'cat /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics/SKILL.md'}, 'id': 'chatcmpl-tool-aba355edc096ede0', 'type': 'tool_call'}], invalid_tool_calls=[], usage_metadata={'input_tokens': 625, 'output_tokens': 92, 'total_tokens': 717}, role='assistant'), ToolMessage(content="---\nname: sales-analytics\ndescription: Database schema and business logic for sales data analysis including customers, orders, and revenue.\n---\n# Sales Analytics Schema\n\n## Tables\n\n### customers\n- customer_id (PRIMARY KEY)\n- name\n- email\n- signup_date\n- status (active/inactive)\n- customer_tier (bronze/silver/gold/platinum)\n\n### orders\n- order_id (PRIMARY KEY)\n- customer_id (FOREIGN KEY -> customers)\n- order_date\n- status (pending/completed/cancelled/refunded)\n- total_amount\n- sales_region (north/south/east/west)\n\n### order_items\n- item_id (PRIMARY KEY)\n- order_id (FOREIGN KEY -> orders)\n- product_id\n- quantity\n- unit_price\n- discount_percent\n\n## Business Logic\n\n**Active customers**: status = 'active' AND signup_date <= CURRENT_DATE - INTERVAL '90 days'\n\n**Revenue calculation**: Only count orders with status = 'completed'. Use total_amount from orders table, which already accounts for discounts.\n\n**Customer lifetime value (CLV)**: Sum of all completed order amounts for a customer.\n\n**High-value orders**: Orders with total_amount > 1000\n\n## Example Query\n\n-- Get top 10 customers by revenue in the last quarter\nSELECT\n    c.customer_id,\n    c.name,\n    c.customer_tier,\n    SUM(o.total_amount) as total_revenue\nFROM customers c\nJOIN orders o ON c.customer_id = o.customer_id\nWHERE o.status = 'completed'\n  AND o.order_date >= CURRENT_DATE - INTERVAL '3 months'\nGROUP BY c.customer_id, c.name, c.customer_tier\nORDER BY total_revenue DESC\nLIMIT 10\n", name='bash', id='60fa14f9-272a-462f-b147-8e73744495fa', tool_call_id='chatcmpl-tool-aba355edc096ede0'), AIMessage(content="SELECT\n    c.customer_id,\n    c.name,\n    c.email,\n    c.customer_tier\nFROM customers AS c\nJOIN orders AS o\n    ON c.customer_id = o.customer_id\nWHERE o.status = 'completed'\n  AND o.total_amount > 1000\n  AND o.order_date >= CURRENT_DATE - INTERVAL '1 month'\nGROUP BY c.customer_id, c.name, c.email, c.customer_tier;", additional_kwargs={'reasoning_content': 'Now we need SQL to find all customers who made orders over $1000 in the last month. Business logic: consider orders with status=\'completed\'? Probably yes. The requirement: "made orders over $1000 in the last month". Could mean any order >1000 in last month. Probably need distinct customers who have at least one order with total_amount > 1000, order_date within last month (30 days) and status=completed. Return customer details.\n\nWe\'ll write:\n\nSELECT c.customer_id, c.name, c.email, c.customer_tier\nFROM customers c\nJOIN orders o ON c.customer_id = o.customer_id\nWHERE o.status=\'completed\'\n  AND o.total_amount > 1000\n  AND o.order_date >= CURRENT_DATE - INTERVAL \'1 month\'\nGROUP BY c.customer_id, c.name, c.email, c.customer_tier;\n\nOr maybe use DISTINCT.\n\nReturn all columns? We\'ll just list basic. According to instruction, only return the SQL query.', 'reasoning': 'Now we need SQL to find all customers who made orders over $1000 in the last month. Business logic: consider orders with status=\'completed\'? Probably yes. The requirement: "made orders over $1000 in the last month". Could mean any order >1000 in last month. Probably need distinct customers who have at least one order with total_amount > 1000, order_date within last month (30 days) and status=completed. Return customer details.\n\nWe\'ll write:\n\nSELECT c.customer_id, c.name, c.email, c.customer_tier\nFROM customers c\nJOIN orders o ON c.customer_id = o.customer_id\nWHERE o.status=\'completed\'\n  AND o.total_amount > 1000\n  AND o.order_date >= CURRENT_DATE - INTERVAL \'1 month\'\nGROUP BY c.customer_id, c.name, c.email, c.customer_tier;\n\nOr maybe use DISTINCT.\n\nReturn all columns? We\'ll just list basic. According to instruction, only return the SQL query.', '_reasoning_api_fields': ['reasoning_content', 'reasoning']}, response_metadata={'role': 'assistant', 'content': "SELECT\n    c.customer_id,\n    c.name,\n    c.email,\n    c.customer_tier\nFROM customers AS c\nJOIN orders AS o\n    ON c.customer_id = o.customer_id\nWHERE o.status = 'completed'\n  AND o.total_amount > 1000\n  AND o.order_date >= CURRENT_DATE - INTERVAL '1 month'\nGROUP BY c.customer_id, c.name, c.email, c.customer_tier;", 'refusal': None, 'annotations': None, 'audio': None, 'function_call': None, 'tool_calls': [], 'reasoning': 'Now we need SQL to find all customers who made orders over $1000 in the last month. Business logic: consider orders with status=\'completed\'? Probably yes. The requirement: "made orders over $1000 in the last month". Could mean any order >1000 in last month. Probably need distinct customers who have at least one order with total_amount > 1000, order_date within last month (30 days) and status=completed. Return customer details.\n\nWe\'ll write:\n\nSELECT c.customer_id, c.name, c.email, c.customer_tier\nFROM customers c\nJOIN orders o ON c.customer_id = o.customer_id\nWHERE o.status=\'completed\'\n  AND o.total_amount > 1000\n  AND o.order_date >= CURRENT_DATE - INTERVAL \'1 month\'\nGROUP BY c.customer_id, c.name, c.email, c.customer_tier;\n\nOr maybe use DISTINCT.\n\nReturn all columns? We\'ll just list basic. According to instruction, only return the SQL query.', 'reasoning_content': 'Now we need SQL to find all customers who made orders over $1000 in the last month. Business logic: consider orders with status=\'completed\'? Probably yes. The requirement: "made orders over $1000 in the last month". Could mean any order >1000 in last month. Probably need distinct customers who have at least one order with total_amount > 1000, order_date within last month (30 days) and status=completed. Return customer details.\n\nWe\'ll write:\n\nSELECT c.customer_id, c.name, c.email, c.customer_tier\nFROM customers c\nJOIN orders o ON c.customer_id = o.customer_id\nWHERE o.status=\'completed\'\n  AND o.total_amount > 1000\n  AND o.order_date >= CURRENT_DATE - INTERVAL \'1 month\'\nGROUP BY c.customer_id, c.name, c.email, c.customer_tier;\n\nOr maybe use DISTINCT.\n\nReturn all columns? We\'ll just list basic. According to instruction, only return the SQL query.', 'token_usage': {'prompt_tokens': 1124, 'total_tokens': 1426, 'completion_tokens': 302, 'prompt_tokens_details': None}, 'finish_reason': 'stop', 'model_name': 'openai/gpt-oss-120b'}, id='lc_run--019fa04a-299e-7e92-ac16-22faf452cbf7-0', tool_calls=[], invalid_tool_calls=[], usage_metadata={'input_tokens': 1124, 'output_tokens': 302, 'total_tokens': 1426}, role='assistant')], 'skills_metadata': [SkillProperties(name='sales-analytics', description='Database schema and business logic for sales data analysis including customers, orders, and revenue.', license=None, compatibility=None, allowed_tools=None, metadata=None)]}
+================================ Human Message =================================
+
+Write a SQL query to find all customers who made orders over $1000 in the last month
+================================== Ai Message ==================================
+Tool Calls:
+  bash (chatcmpl-tool-9e44a8005571aad3)
+ Call ID: chatcmpl-tool-9e44a8005571aad3
+  Args:
+    command: cat /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics
+================================= Tool Message =================================
+Name: bash
+
+Error (exit 1): cat: /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics: Is a directory
+
+
+================================== Ai Message ==================================
+Tool Calls:
+  bash (chatcmpl-tool-9903330e1eec7a92)
+ Call ID: chatcmpl-tool-9903330e1eec7a92
+  Args:
+    command: ls -R /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics
+=================================[1m Tool Message [0m=================================
+Name: bash
+
+/agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics:
+SKILL.md
+
+==================================[1m Ai Message [0m==================================
+Tool Calls:
+  bash (chatcmpl-tool-84097b9c272c6217)
+ Call ID: chatcmpl-tool-84097b9c272c6217
+  Args:
+    command: sed -n '1,200p' /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics/SKILL.md
+=================================[1m Tool Message [0m=================================
+Name: bash
+
+only "ls","cat" and "sqlite3" commands are allowed
+==================================[1m Ai Message [0m==================================
+Tool Calls:
+  bash (chatcmpl-tool-aba355edc096ede0)
+ Call ID: chatcmpl-tool-aba355edc096ede0
+  Args:
+    command: cat /agentic-ai-bootcamp/tutorial/org_notebook/skills/sales-analytics/SKILL.md
+=================================[1m Tool Message [0m=================================
+Name: bash
+
+---
+name: sales-analytics
+description: Database schema and business logic for sales data analysis including customers, orders, and revenue.
+---
+# Sales Analytics Schema
+
+## Tables
+
+### customers
+- customer_id (PRIMARY KEY)
+- name
+- email
+- signup_date
+- status (active/inactive)
+- customer_tier (bronze/silver/gold/platinum)
+
+### orders
+- order_id (PRIMARY KEY)
+- customer_id (FOREIGN KEY -> customers)
+- order_date
+- status (pending/completed/cancelled/refunded)
+- total_amount
+- sales_region (north/south/east/west)
+
+### order_items
+- item_id (PRIMARY KEY)
+- order_id (FOREIGN KEY -> orders)
+- product_id
+- quantity
+- unit_price
+- discount_percent
+
+## Business Logic
+
+,**Active customers**: status = 'active' AND signup_date <= CURRENT_DATE - INTERVAL '90 days'
+
+,**Revenue calculation**: Only count orders with status = 'completed'. Use total_amount from orders table, which already accounts for discounts.
+
+,**Customer lifetime value (CLV)**: Sum of all completed order amounts for a customer.
+
+,**High-value orders**: Orders with total_amount > 1000
+
+## Example Query
+
+-- Get top 10 customers by revenue in the last quarter
+SELECT
+    c.customer_id,
+    c.name,
+    c.customer_tier,
+    SUM(o.total_amount) as total_revenue
+FROM customers c
+JOIN orders o ON c.customer_id = o.customer_id
+WHERE o.status = 'completed'
+  AND o.order_date >= CURRENT_DATE - INTERVAL '3 months'
+GROUP BY c.customer_id, c.name, c.customer_tier
+ORDER BY total_revenue DESC
+LIMIT 10
+
+==================================[1m Ai Message [0m==================================
+
+SELECT
+    c.customer_id,
+    c.name,
+    c.email,
+    c.customer_tier
+FROM customers AS c
+JOIN orders AS o
+    ON c.customer_id = o.customer_id
+WHERE o.status = 'completed'
+  AND o.total_amount > 1000
+  AND o.order_date >= CURRENT_DATE - INTERVAL '1 month'
+GROUP BY c.customer_id, c.name, c.email, c.customer_tier;
+#+end_example
+
+#+begin_src python :results output :session *python* :exports both
+print(result["messages"][-1].content)
+#+end_src
+
+#+RESULTS:
+#+begin_example
+SELECT
+    c.customer_id,
+    c.name,
+    c.email,
+    c.customer_tier
+FROM customers AS c
+JOIN orders AS o
+    ON c.customer_id = o.customer_id
+WHERE o.status = 'completed'
+  AND o.total_amount > 1000
+  AND o.order_date >= CURRENT_DATE - INTERVAL '1 month'
+GROUP BY c.customer_id, c.name, c.email, c.customer_tier;
+#+end_example
+
+*** Milestones                                                       :Text:
+- LangGraph APIs
+  - =graph.invoke()=
+  - =graph.stream()=
+- Structured outputs
+  - =model.with_structured_output(UserIntent, strict=True)=
+- Memory & Interrupts
+  - =graph_builder.compile(checkpointer=memory)=
+  - =responses["__interrupt__"]=
+- Agent skills
+  - =SKILL.md=
+    - Metadata + Instructions + Resources
+    - Progressive disclosure
+  - Tools (=@tool=)
+  - Middleware
+
+* License
+This work is licensed under a [[https://creativecommons.org/licenses/by/4.0/][CC-BY-4.0]] licence.
+Most of the code was adapted from materials released by OpenACC-Standard.org under the Creative Commons Attribution 4.0 International License (CC BY 4.0).
+These materials include references to hardware and software developed by other entities; all applicable licensing and copyrights apply.
