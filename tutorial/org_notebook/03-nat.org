@@ -1,0 +1,1234 @@
+# -*- mode: org -*-
+# -*- coding: utf-8 -*-
+#+TITLE:       NeMo Agent Toolkit
+#+AUTHOR:      tengssh
+#+LANGUAGE:    en
+#+STARTUP:     indent
+#+TAGS: Text(T) Code(C) Visualization(V) Protocol(P) noexport(n)
+#+OPTIONS: toc:3
+#+EXPORT_SELECT_TAGS: export
+#+EXPORT_EXCLUDE_TAGS: noexport inlineimages
+#+COLUMNS: %25ITEM %TODO %3PRIORITY %TAGS
+#+PROPERTY: header-args:shell :var SIF_HOME="/containers/" :results output
+
+* Project overview
+This notebook uses materials from the [[https://github.com/klemensnoga/agentic-ai-bootcamp][Github repository]] of the European Agentic AI Bootcamp on using LangGraph, NIM APIs, and the NeMo Agent Toolkit (NAT) for agentic AI applications.
+
+This is part 3 of this tutorial. Links to all notebooks can be found below:
+- [[01-nim_mcp.org]]
+- [[02-langgraph.org]]
+- [[03-nat.org]]
+
+* Resources
+- European Agentic AI Bootcamp
+  - [[https://github.com/klemensnoga/agentic-ai-bootcamp]]
+- NVIDIA
+  - [[https://docs.nvidia.com/nim/index.html][NVIDIA Inference Microservices (NIM)]]
+  - [[https://docs.nvidia.com/nemo/agent-toolkit/latest/index.html][NVIDIA NeMo Agent Toolkit (NAT)]]
+    - [[https://github.com/NVIDIA/NeMo-Agent-Toolkit]]
+- LangGraph
+  - [[https://docs.langchain.com/oss/python/langgraph/overview][LangGraph overview]]
+    - [[https://github.com/langchain-ai/langgraph]]
+- Telemetry
+  - [[https://phoenix.arize.com/][Ariize Phoenix]]
+    - [[https://github.com/Arize-ai/phoenix/]]
+
+* Journal
+** 2026.07.27 23:04
+*** Environment
+**** Set aliases                                                :noexport:
+#+begin_src shell :session *shell* :results output :exports both
+alias ls='ls --color=none'
+alias pixi='apptainer exec $SIF_HOME/base/utilities_ubuntu.sif pixi'
+pixi --version
+#+end_src
+
+#+RESULTS:
+: pixi 0.73.0
+
+**** Pixi env
+Reinstall =nvidia-nat=
+#+begin_src shell :session *shell* :results output :exports both
+pixi add --pypi "nvidia-nat[langchain,mcp,phoenix,eval,profiling]>=1.5.0"
+#+end_src
+
+#+RESULTS:
+: WARN The package `nvidia-nat==1.8.0` does not have an extra named `profiling`
+: =1.5.0
+: Added these as pypi-dependencies.
+
+#+begin_src shell :results output :exports both
+cat pixi.toml
+#+end_src
+
+#+RESULTS:
+#+begin_example
+[workspace]
+channels = ["conda-forge"]
+name = "org_notebook"
+platforms = ["linux-64"]
+version = "0.1.0"
+
+[tasks]
+
+[dependencies]
+python = "3.13.*"
+python-dotenv = ">=1.2.2,<2"
+
+[pypi-dependencies]
+jupyter = ">=1.1.1"
+fastmcp = ">=3.1.1"
+mcp = { version = ">=1.12.3", extras = ["cli"] }
+langchain = ">=1.2.12"
+langchain-nvidia-ai-endpoints = ">=0.3.5"
+langgraph = ">=1.1.2"
+nvidia-nat = { version = ">=1.5.0", extras = ["langchain", "mcp", "phoenix", "eval", "profiling"] }
+arize-phoenix = ">=13.15.0"
+strictyaml = ">=1.7.3"
+#+end_example
+
+*** Action
+**** SQLite-backed movie database
+***** SQLite queries                                               :Code:
+#+begin_src shell :results output :exports both
+ln -s ../jupyter_notebook/data
+ls
+#+end_src
+
+#+RESULTS:
+#+begin_example
+01-nim_mcp.org
+02-langgraph.org
+03-nat.org
+data
+mcp_client.py
+mcp_server.py
+mcp_server_low_level.py
+mcp_server_low_level_http.py
+pixi.lock
+pixi.toml
+skills
+skills_ref
+#+end_example
+
+#+begin_src python :results output :session *python* :exports both
+import sqlite3
+import json
+
+DB_PATH = "data/movie.sqlite"
+
+conn = sqlite3.connect(DB_PATH)
+conn.row_factory = sqlite3.Row
+cursor = conn.cursor()
+cursor.execute("SELECT Movie_id, Title, Rating, TotalVotes, Budget, Runtime FROM IMDB LIMIT 5")
+rows = [dict(row) for row in cursor.fetchall()]
+conn.close()
+
+print(json.dumps(rows, indent=2))
+#+end_src
+
+#+RESULTS:
+#+begin_example
+[
+  {
+    "Movie_id": "36809",
+    "Title": "12 Years a Slave (2013)",
+    "Rating": 8.1,
+    "TotalVotes": 496092,
+    "Budget": 20000000.0,
+    "Runtime": "134 min"
+  },
+  {
+    "Movie_id": "30114",
+    "Title": "127 Hours (2010)",
+    "Rating": 7.6,
+    "TotalVotes": 297075,
+    "Budget": 18000000.0,
+    "Runtime": "94 min"
+  },
+  {
+    "Movie_id": "37367",
+    "Title": "50/50\u00a0(2011)",
+    "Rating": 7.7,
+    "TotalVotes": 283935,
+    "Budget": 8000000.0,
+    "Runtime": "100 min"
+  },
+  {
+    "Movie_id": "49473",
+    "Title": "About Time\u00a0(2013)",
+    "Rating": 7.8,
+    "TotalVotes": 225412,
+    "Budget": 12000000.0,
+    "Runtime": "123 min"
+  },
+  {
+    "Movie_id": "14867",
+    "Title": "Amour\u00a0(2012)",
+    "Rating": 7.9,
+    "TotalVotes": 76121,
+    "Budget": 8900000.0,
+    "Runtime": "127 min"
+  }
+]
+#+end_example
+***** Helper class                                                 :Text:
+#+begin_src python :tangle movie_db.py
+import sqlite3
+import json                                                                                                                                                                             
+from typing import List
+from pathlib import Path                                                                                                                                                                
+import mcp.types as types
+
+DB_PATH = "data/movie.sqlite"
+
+class MovieDB:
+  def __init__(self, db_path):
+      self.db_path = str(Path().resolve().joinpath(db_path))
+
+  def _search_movies(
+      self,
+      title: str | None,
+      min_rating: float | None,
+      max_rating: float | None,
+      limit: int = 20,
+  ) -> List[types.TextContent]:
+      """Search movies in the IMDB table by title and/or rating range.
+
+      Args:
+          title: Partial or full movie title to search for.
+          min_rating: Minimum IMDB rating.
+          max_rating: Maximum IMDB rating.
+          limit: Max number of results to return.
+      """
+
+      conn = sqlite3.connect(self.db_path)
+      cursor = conn.cursor()
+
+      query = """
+          SELECT Movie_id, Title, Rating, TotalVotes, Budget, Runtime
+          FROM IMDB
+      """
+      params = []
+      conditions = []
+
+      if title is not None:
+          conditions.append("Title LIKE ?")
+          params.append(f"%{title}%")
+
+      if min_rating is not None:
+          conditions.append("Rating >= ?")
+          params.append(min_rating)
+
+      if max_rating is not None:
+          conditions.append("Rating <= ?")
+          params.append(max_rating)
+
+      if conditions:
+          query += " WHERE " + " AND ".join(conditions)
+
+      query += " ORDER BY Rating DESC LIMIT ?"
+      params.append(limit)
+
+      try:
+          cursor.execute(query, params)
+          results = cursor.fetchall()
+
+          output = []
+          for row in results:
+              output.append(
+                  {
+                      "movie_id": row[0],
+                      "title": row[1],
+                      "rating": row[2],
+                      "total_votes": row[3],
+                      "budget": row[4],
+                      "runtime": row[5],
+                  }
+              )
+
+      except sqlite3.Error as e:
+          conn.close()
+          raise e
+
+      finally:
+          conn.close()
+
+      return [types.TextContent(
+          type="text",
+          text=json.dumps(output)
+      )]
+#+end_src
+***** Test helper class                                            :Code:
+#+begin_src python :results output :session *python* :exports both
+from movie_db import MovieDB
+
+movie_db = MovieDB(DB_PATH)
+# Search by title
+res = movie_db._search_movies(title="Dark", min_rating=None, max_rating=None)
+print(res)
+# Search by minimum rating
+res = movie_db._search_movies(title=None, min_rating=8.5, max_rating=None, limit=5)
+print(res)
+# Combined filters
+res = movie_db._search_movies(title="The", min_rating=8.0, max_rating=None, limit=3)
+print(res)
+# Top 5
+res = movie_db._search_movies(title=None, min_rating=None, max_rating=None, limit=5)
+print(res)
+#+end_src
+
+#+RESULTS:
+: [TextContent(type='text', text='[{"movie_id": "29419", "title": "The Dark Knight Rises\\u00a0(2012)", "rating": 8.4, "total_votes": 1240780, "budget": 250000000.0, "runtime": "164 min"}, {"movie_id": "28919", "title": "Star Trek Into Darkness\\u00a0(2013)", "rating": 7.8, "total_votes": 421473, "budget": 190000000.0, "runtime": "132 min"}]', annotations=None, meta=None)]
+: [TextContent(type='text', text='[{"movie_id": "46824", "title": "Inception (2010)", "rating": 8.8, "total_votes": 1609713, "budget": 160000000.0, "runtime": "148 min"}, {"movie_id": "46900", "title": "Interstellar\\u00a0(2014)", "rating": 8.6, "total_votes": 1075163, "budget": 165000000.0, "runtime": "169 min"}, {"movie_id": "38262", "title": "Whiplash\\u00a0(2014)", "rating": 8.5, "total_votes": 492285, "budget": 3300000.0, "runtime": "107 min"}]', annotations=None, meta=None)]
+: [TextContent(type='text', text='[{"movie_id": "29419", "title": "The Dark Knight Rises\\u00a0(2012)", "rating": 8.4, "total_votes": 1240780, "budget": 250000000.0, "runtime": "164 min"}, {"movie_id": "35004", "title": "The Wolf of Wall Street (2013)", "rating": 8.2, "total_votes": 881984, "budget": 100000000.0, "runtime": "180 min"}, {"movie_id": "11289", "title": "Guardians of the Galaxy (2014)", "rating": 8.1, "total_votes": 778220, "budget": 170000000.0, "runtime": "121 min"}]', annotations=None, meta=None)]
+: [TextContent(type='text', text='[{"movie_id": "46824", "title": "Inception (2010)", "rating": 8.8, "total_votes": 1609713, "budget": 160000000.0, "runtime": "148 min"}, {"movie_id": "46900", "title": "Interstellar\\u00a0(2014)", "rating": 8.6, "total_votes": 1075163, "budget": 165000000.0, "runtime": "169 min"}, {"movie_id": "38262", "title": "Whiplash\\u00a0(2014)", "rating": 8.5, "total_votes": 492285, "budget": 3300000.0, "runtime": "107 min"}, {"movie_id": "11971", "title": "Django Unchained\\u00a0(2012)", "rating": 8.4, "total_votes": 1056822, "budget": 100000000.0, "runtime": "165 min"}, {"movie_id": "29419", "title": "The Dark Knight Rises\\u00a0(2012)", "rating": 8.4, "total_votes": 1240780, "budget": 250000000.0, "runtime": "164 min"}]', annotations=None, met 
+**** Low-level MCP server
+***** MCP server file                                              :Text:
+#+begin_src python :tangle movie_server.py
+import sys
+import os
+from typing import Any
+from mcp.server.lowlevel import Server
+from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
+from starlette.applications import Starlette
+from starlette.routing import Mount
+from starlette.types import Receive, Scope, Send
+import mcp.types as types
+import json
+import contextlib
+import logging
+from collections.abc import AsyncIterator
+import uvicorn
+from movie_db import MovieDB
+
+logger = logging.getLogger(__name__)
+
+DB_PATH = "data/movie.sqlite"
+
+
+def main(db_path: str = DB_PATH):
+  movie_db = MovieDB(db_path)
+  mcp = Server("movie-db")
+
+  @mcp.list_tools()
+  async def handle_list_tools() -> list[types.Tool]:
+      return [
+          types.Tool(
+      name="search_movies",
+      description="Search movies by title and/or rating range. Results are sorted by rating descending. To get the top N highest rated movies, just set limit=N without any rating filters. Rating scale is 1.0 to 10.0. In this dataset, ratings range from 7.5 to 8.8.",
+      inputSchema={
+          "type": "object",
+          "properties": {
+              "title": {"type": "string", "description": "Partial or full movie title to search for"},
+              "min_rating": {"type": "number", "description": "Minimum IMDB rating (1.0 to 10.0)"},
+              "max_rating": {"type": "number", "description": "Maximum IMDB rating (1.0 to 10.0)"},
+              "limit": {"type": "integer", "description": "Max results to return (default 20)"},
+          },
+      },
+      ),
+      ]
+
+  @mcp.call_tool()
+  async def handle_call_tool(name: str, args: dict[str, Any] | None):
+      args = args or {}
+
+      if name == "search_movies":
+          return movie_db._search_movies(
+              title=args.get("title"),
+              min_rating=args.get("min_rating"),
+              max_rating=args.get("max_rating"),
+              limit=args.get("limit", 20),
+          )
+      else:
+          return [types.TextContent(
+              type="text",
+              text=json.dumps({"error": f"Unknown tool: {name}"})
+          )]
+
+  session_manager = StreamableHTTPSessionManager(
+      app=mcp,
+      event_store=None,
+      json_response=True,
+      stateless=True,
+  )
+
+  async def handle_streamable_http(
+      scope: Scope, receive: Receive, send: Send
+  ) -> None:
+      await session_manager.handle_request(scope, receive, send)
+
+  @contextlib.asynccontextmanager
+  async def lifespan(app: Starlette) -> AsyncIterator[None]:
+      async with session_manager.run():
+          logger.info("Movie DB MCP server started!")
+          try:
+              yield
+          finally:
+              logger.info("Movie DB MCP server shutting down...")
+
+  starlette_app = Starlette(
+      debug=True,
+      routes=[
+          Mount("/mcp", app=handle_streamable_http),
+      ],
+      lifespan=lifespan,
+  )
+  port = int(os.environ.get("MCP_PORT", "8000"))
+  uvicorn.run(starlette_app, host="127.0.0.1", port=port)
+
+
+if __name__ == "__main__":
+  db_path = sys.argv[1] if len(sys.argv) > 1 else DB_PATH
+  main(db_path)
+  #+end_sr
+***** Find available port                                          :Code:
+#+begin_src python :results output :session *python* :exports both
+import os
+import random
+import socket
+
+def find_available_port(start=11000, end=11999):
+    while True:
+        # Randomly select a port between start and end range
+        port = random.randint(start, end)
+        
+        # Try to create a socket and bind to the port
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            try:
+                sock.bind(("localhost", port))
+                # If binding is successful, the port is free
+                return port
+            except OSError:
+                # If binding fails, the port is in use, continue to the next iteration
+                continue
+
+os.environ['MCP_PORT'] = str(find_available_port())
+
+print(f"Available MCP port: {os.environ['MCP_PORT']}")
+#+end_src
+
+#+RESULTS:
+: Available MCP port: 11644
+***** Start MCP server                                             :Code:
+#+begin_src python :async :results output :session *python* :exports both
+import os, sys, subprocess, time
+
+MCP_PORT = int(os.environ["MCP_PORT"])
+
+log = open("mcp_server.log", "w")
+mcp_server_process = subprocess.Popen(
+    [sys.executable, "movie_server.py", "data/movie.sqlite"],
+    stdout=log,
+    stderr=subprocess.STDOUT,
+)
+
+time.sleep(2)  # give the server a moment to bind the port
+print(f"Server started on http://127.0.0.1:{MCP_PORT}/mcp (PID: {mcp_server_process.pid})")
+print("Logs: mcp_server.log")
+#+end_src
+
+#+RESULTS:
+: Server started on http://127.0.0.1:11644/mcp (PID: 40375)
+: Logs: mcp_server.log
+**** NAT CLI                                                        :Code:
+#+begin_src shell :session *shell* :results output :exports both
+MCP_PORT=11644
+pixi run nat mcp client tool list --url http://127.0.0.1:${MCP_PORT}/mcp/
+#+end_src
+
+#+RESULTS:
+: 2026-07-28 00:12:13 - INFO     - nat.plugins.mcp.client.client_impl:614 - Configured to use MCP server at streamable-http:http://127.0.0.1:11644/mcp/
+: 2026-07-28 00:12:14 - INFO     - mcp.client.streamable_http:193 - Negotiated protocol version: 2025-11-25
+: 2026-07-28 00:12:14 - WARNING  - nat.builder.function_info:455 - Using provided input_schema for multi-argument function
+: 2026-07-28 00:12:14 - INFO     - nat.plugins.mcp.client.client_impl:663 - Adding tool search_movies to group
+: search_movies
+
+#+begin_src shell :session *shell* :results output :exports both
+pixi run nat mcp client tool call search_movies \
+      --url http://127.0.0.1:${MCP_PORT}/mcp/ \
+      --json-args '{"min_rating": 8.5, "limit": 5}'
+#+end_src
+
+#+RESULTS:
+: 2026-07-28 00:41:04 - INFO     - nat.plugins.mcp.client.client_impl:614 - Configured to use MCP server at streamable-http:http://127.0.0.1:11644/mcp/
+: 2026-07-28 00:41:04 - INFO     - mcp.client.streamable_http:193 - Negotiated protocol version: 2025-11-25
+: 2026-07-28 00:41:04 - WARNING  - nat.builder.function_info:455 - Using provided input_schema for multi-argument function
+: 2026-07-28 00:41:04 - INFO     - nat.plugins.mcp.client.client_impl:663 - Adding tool search_movies to group
+: 2026-07-28 00:41:04 - INFO     - nat.plugins.mcp.client.client_base:819 - Calling tool search_movies
+: [{"movie_id": "46824", "title": "Inception (2010)", "rating": 8.8, "total_votes": 1609713, "budget": 160000000.0, "runtime": "148 min"}, {"movie_id": "46900", "title": "Interstellar\u00a0(2014)", "rating": 8.6, "total_votes": 1075163, "budget": 165000000.0, "runtime": "169 min"}, {"movie_id": "38262", "title": "Whiplash\u00a0(2014)", "rating": 8.5, "total_votes": 492285, "budget": 3300000.0, "runtime": "107 min"}]
+**** NAT workflow
+***** Bare ReAct agent
+****** YAML configuration                                :Text:Protocol:
+#+begin_src bash :tangle movie_workflow.yml
+function_groups:
+    mcp_movies:
+      _type: mcp_client
+      server:
+        transport: streamable-http
+        url: "http://127.0.0.1:${MCP_PORT}/mcp/"
+
+llms:
+    nim_llm:
+      _type: nim
+      model_name: nvidia/nemotron-3-nano-30b-a3b
+      base_url: https://integrate.api.nvidia.com/v1
+      api_key: ${NVIDIA_API_KEY}
+      temperature: 0.0
+      max_tokens: 1024
+
+workflow:
+    _type: react_agent
+    tool_names:
+      - mcp_movies
+    llm_name: nim_llm
+    verbose: true
+    parse_agent_response_max_retries: 3
+#+end_src
+****** Run queries                                                :Code:
+#+begin_src shell :results output :exports both
+export MCP_PORT=11644
+curl -I http://127.0.0.1:${MCP_PORT}/mcp/ 2>&1
+#+end_src
+
+#+RESULTS:
+#+begin_example
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0  0    92    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
+HTTP/1.1 405 Method Not Allowed
+date: Mon, 27 Jul 2026 22:53:10 GMT
+server: uvicorn
+content-type: application/json
+allow: GET, POST, DELETE
+content-length: 92
+
+#+end_example
+
+#+begin_src shell :session *shell* :results output :exports both
+source .env
+export MCP_PORT=11644
+pixi run nat run --config_file movie_workflow.yml --input "movies rated over 8.5"
+#+end_src
+
+#+RESULTS:
+#+begin_example
+2026-07-28 00:54:04 - INFO     - nat.cli.commands.start:192 - Starting NAT from config file: 'movie_workflow.yml'
+2026-07-28 00:54:04 - INFO     - nat.plugins.mcp.client.client_impl:614 - Configured to use MCP server at streamable-http:http://127.0.0.1:11644/mcp/
+2026-07-28 00:54:05 - INFO     - mcp.client.streamable_http:193 - Negotiated protocol version: 2025-11-25
+2026-07-28 00:54:05 - WARNING  - nat.builder.function_info:455 - Using provided input_schema for multi-argument function
+2026-07-28 00:54:05 - INFO     - nat.plugins.mcp.client.client_impl:663 - Adding tool search_movies to group
+
+Configuration Summary:
+--------------------
+Workflow Type: react_agent
+Number of Functions: 0
+Number of Function Groups: 1
+Number of LLMs: 1
+Number of Embedders: 0
+Number of Memory: 0
+Number of Object Stores: 0
+Number of Retrievers: 0
+Number of TTC Strategies: 0
+Number of Authentication Providers: 0
+
+2026-07-28 00:54:08 - INFO     - nat.runtime.session:329 - Shared workflow built (entry_function=None)
+2026-07-28 00:54:09 - INFO     - nat.plugins.langchain.agent.react_agent.agent:229 - 
+------------------------------
+[AGENT]
+[33mAgent input: movies rated over 8.5
+[36mAgent's thoughts:
+8.5? Actually rating scale 7.5-8.8, so over 8.5 means min_rating 8.5? Probably min_rating=8.5. Also maybe limit unspecified. So we need to ask human to use tool. Provide format:
+
+Question: movies rated over 8.5
+8.5
+Action: mcp_movies__search_movies
+Action Input: {"min_rating": 8.5}
+Observation[39m
+------------------------------
+2026-07-28 00:54:09 - INFO     - nat.plugins.mcp.client.client_base:819 - Calling tool search_movies
+2026-07-28 00:54:10 - INFO     - nat.plugins.langchain.agent.base:278 - 
+------------------------------
+[AGENT]
+[37mCalling tools: mcp_movies__search_movies
+[33mTool's input: {'min_rating': 8.5}
+[36mTool's response: 
+[{"movie_id": "46824", "title": "Inception (2010)", "rating": 8.8, "total_votes": 1609713, "budget": 160000000.0, "runtime": "148 min"}, {"movie_id": "46900", "title": "Interstellar\u00a0(2014)", "rating": 8.6, "total_votes": 1075163, "budget": 165000000.0, "runtime": "169 min"}, {"movie_id": "38262", "title": "Whiplash\u00a0(2014)", "rating": 8.5, "total_votes": 492285, "budget": 3300000.0, "runtime": "107 min"}][39m
+------------------------------
+2026-07-28 00:54:11 - INFO     - nat.plugins.langchain.agent.react_agent.agent:253 - 
+------------------------------
+[AGENT]
+[33mAgent input: movies rated over 8.5
+[36mAgent's thoughts: 
+Final Answer: The movies with a rating **over 8.5** are:
+- *Inception* (2010) – rating 8.8
+- *Interstellar* (2014) – rating 8.6[39m
+------------------------------
+2026-07-28 00:54:11 - INFO     - nat.front_ends.console.console_front_end_plugin:161 - --------------------------------------------------
+[32mWorkflow Result:
+The movies with a rating **over 8.5** are:
+- *Inception* (2010) - rating 8.8
+- *Interstellar* (2014) - rating 8.6[39m
+--------------------------------------------------
+#+end_example
+****** Probe the agent                                            :Code:
+#+begin_src shell :session *shell* :results output :exports both
+pixi run nat run --config_file movie_workflow.yml --input "How do I cook pasta?"
+#+end_src
+
+#+RESULTS:
+#+begin_example
+2026-07-28 01:00:33 - INFO     - nat.cli.commands.start:192 - Starting NAT from config file: 'movie_workflow.yml'
+2026-07-28 01:00:33 - INFO     - nat.plugins.mcp.client.client_impl:614 - Configured to use MCP server at streamable-http:http://127.0.0.1:11644/mcp/
+2026-07-28 01:00:34 - INFO     - mcp.client.streamable_http:193 - Negotiated protocol version: 2025-11-25
+2026-07-28 01:00:34 - WARNING  - nat.builder.function_info:455 - Using provided input_schema for multi-argument function
+2026-07-28 01:00:34 - INFO     - nat.plugins.mcp.client.client_impl:663 - Adding tool search_movies to group
+
+Configuration Summary:
+--------------------
+Workflow Type: react_agent
+Number of Functions: 0
+Number of Function Groups: 1
+Number of LLMs: 1
+Number of Embedders: 0
+Number of Memory: 0
+Number of Object Stores: 0
+Number of Retrievers: 0
+Number of TTC Strategies: 0
+Number of Authentication Providers: 0
+
+2026-07-28 01:00:37 - INFO     - nat.runtime.session:329 - Shared workflow built (entry_function=None)
+2026-07-28 01:00:43 - INFO     - nat.plugins.langchain.agent.react_agent.agent:229 - 
+------------------------------
+[AGENT]
+[33mAgent input: How do I cook pasta?
+[36mAgent's thoughts: 
+Final Answer: To cook pasta, follow these basic steps:
+
+1. **Boil water** – Fill a large pot with water (about 4–6 quarts per pound of pasta) and bring it to a rolling boil. Add a generous amount of salt (about 1–2 tablespoons) to season the water.
+
+2. **Add the pasta** – Once the water is boiling, add the pasta and stir immediately to prevent sticking. Cook according to the package instructions, usually 8–12 minutes, until the pasta is “al dente” (firm to the bite).
+
+3. **Reserve pasta water** – Before draining, scoop out a cup of the hot pasta water. This starchy water helps sauces cling to the pasta.
+
+4. **Drain the pasta** – Pour the pasta into a colander and rinse briefly with hot water if you’re serving it with a sauce that benefits from a little texture (e.g., stir‑fry). For most sauces, skip rinsing to keep the starch on the noodles.
+
+5. **Combine with sauce** – Return the pasta to the pot or a large skillet, add your sauce, and toss together over low heat. If the sauce seems dry, add a splash of the reserved pasta water to loosen it.
+
+6. **Serve** – Plate the pasta, drizzle with a little extra sauce or olive oil, and garnish with cheese, herbs, or nuts as desired. Enjoy![39m
+------------------------------
+2026-07-28 01:00:43 - INFO     - nat.front_ends.console.console_front_end_plugin:161 - --------------------------------------------------
+[32mWorkflow Result:
+To cook pasta, follow these basic steps:
+
+1. **Boil water** - Fill a large pot with water (about 4-6 quarts per pound of pasta) and bring it to a rolling boil. Add a generous amount of salt (about 1-2 tablespoons) to season the water.
+
+2. **Add the pasta** - Once the water is boiling, add the pasta and stir immediately to prevent sticking. Cook according to the package instructions, usually 8-12 minutes, until the pasta is "al dente" (firm to the bite).
+
+3. **Reserve pasta water** - Before draining, scoop out a cup of the hot pasta water. This starchy water helps sauces cling to the pasta.
+
+4. **Drain the pasta** - Pour the pasta into a colander and rinse briefly with hot water if you're serving it with a sauce that benefits from a little texture (e.g., stir-fry). For most sauces, skip rinsing to keep the starch on the noodles.
+
+5. **Combine with sauce** - Return the pasta to the pot or a large skillet, add your sauce, and toss together over low heat. If the sauce seems dry, add a splash of the reserved pasta water to loosen it.
+
+6. **Serve** - Plate the pasta, drizzle with a little extra sauce or olive oil, and garnish with cheese, herbs, or nuts as desired. Enjoy![39m
+--------------------------------------------------
+#+end_example
+
+#+begin_src shell :session *shell* :results output :exports both
+pixi run nat run --config_file movie_workflow.yml --input "What is the capital of France?"
+#+end_src
+
+#+RESULTS:
+#+begin_example
+2026-07-28 01:03:06 - INFO     - nat.cli.commands.start:192 - Starting NAT from config file: 'movie_workflow.yml'
+2026-07-28 01:03:06 - INFO     - nat.plugins.mcp.client.client_impl:614 - Configured to use MCP server at streamable-http:http://127.0.0.1:11644/mcp/
+2026-07-28 01:03:07 - INFO     - mcp.client.streamable_http:193 - Negotiated protocol version: 2025-11-25
+2026-07-28 01:03:07 - WARNING  - nat.builder.function_info:455 - Using provided input_schema for multi-argument function
+2026-07-28 01:03:07 - INFO     - nat.plugins.mcp.client.client_impl:663 - Adding tool search_movies to group
+
+Configuration Summary:
+--------------------
+Workflow Type: react_agent
+Number of Functions: 0
+Number of Function Groups: 1
+Number of LLMs: 1
+Number of Embedders: 0
+Number of Memory: 0
+Number of Object Stores: 0
+Number of Retrievers: 0
+Number of TTC Strategies: 0
+Number of Authentication Providers: 0
+
+2026-07-28 01:03:10 - INFO     - nat.runtime.session:329 - Shared workflow built (entry_function=None)
+2026-07-28 01:03:11 - INFO     - nat.plugins.langchain.agent.react_agent.agent:229 - 
+------------------------------
+[AGENT]
+[33mAgent input: What is the capital of France?
+[36mAgent's thoughts: 
+Final Answer: Paris[39m
+------------------------------
+2026-07-28 01:03:11 - INFO     - nat.front_ends.console.console_front_end_plugin:161 - --------------------------------------------------
+[32mWorkflow Result:
+Paris[39m
+--------------------------------------------------
+#+end_example
+
+#+begin_src shell :session *shell* :results output :exports both
+pixi run nat run --config_file movie_workflow.yml --input "what is the rating of the movie The Dark Knight Rises?"
+#+end_src
+
+#+RESULTS:
+#+begin_example
+2026-07-28 01:04:32 - INFO     - nat.cli.commands.start:192 - Starting NAT from config file: 'movie_workflow.yml'
+2026-07-28 01:04:32 - INFO     - nat.plugins.mcp.client.client_impl:614 - Configured to use MCP server at streamable-http:http://127.0.0.1:11644/mcp/
+2026-07-28 01:04:32 - INFO     - mcp.client.streamable_http:193 - Negotiated protocol version: 2025-11-25
+2026-07-28 01:04:32 - WARNING  - nat.builder.function_info:455 - Using provided input_schema for multi-argument function
+2026-07-28 01:04:32 - INFO     - nat.plugins.mcp.client.client_impl:663 - Adding tool search_movies to group
+
+Configuration Summary:
+--------------------
+Workflow Type: react_agent
+Number of Functions: 0
+Number of Function Groups: 1
+Number of LLMs: 1
+Number of Embedders: 0
+Number of Memory: 0
+Number of Object Stores: 0
+Number of Retrievers: 0
+Number of TTC Strategies: 0
+Number of Authentication Providers: 0
+
+2026-07-28 01:04:36 - INFO     - nat.runtime.session:329 - Shared workflow built (entry_function=None)
+2026-07-28 01:04:38 - INFO     - nat.plugins.langchain.agent.react_agent.agent:229 - 
+------------------------------
+[AGENT]
+[33mAgent input: what is the rating of the movie The Dark Knight Rises?
+[36mAgent's thoughts: 
+Thought: I need to find the rating of "The Dark Knight Rises". I will search for the movie by title using the provided tool.
+Action: mcp_movies__search_movies
+Action Input: {"title": "The Dark Knight Rises"}
+Observation[39m
+------------------------------
+2026-07-28 01:04:38 - INFO     - nat.plugins.mcp.client.client_base:819 - Calling tool search_movies
+2026-07-28 01:04:38 - INFO     - nat.plugins.langchain.agent.base:278 - 
+------------------------------
+[AGENT]
+[37mCalling tools: mcp_movies__search_movies
+[33mTool's input: {'title': 'The Dark Knight Rises'}
+[36mTool's response: 
+[{"movie_id": "29419", "title": "The Dark Knight Rises\u00a0(2012)", "rating": 8.4, "total_votes": 1240780, "budget": 250000000.0, "runtime": "164 min"}][39m
+------------------------------
+2026-07-28 01:04:39 - INFO     - nat.plugins.langchain.agent.react_agent.agent:253 - 
+------------------------------
+[AGENT]
+[33mAgent input: what is the rating of the movie The Dark Knight Rises?
+[36mAgent's thoughts: 
+Thought: I now know the final answer
+Final Answer: 8.4[39m
+------------------------------
+2026-07-28 01:04:39 - INFO     - nat.front_ends.console.console_front_end_plugin:161 - --------------------------------------------------
+[32mWorkflow Result:
+8.4[39m
+--------------------------------------------------
+#+end_example
+***** Build an intent classifier with LangGraph
+****** Intent classifier & YAML configuration                     :Text:
+#+begin_src python :tangle movie_intent_classifier.py
+from typing import Annotated
+from typing_extensions import TypedDict                                                                                                                                                 
+from langgraph.graph import StateGraph, START, END
+from langgraph.graph.message import add_messages
+
+from nat.builder.framework_enum import LLMFrameworkEnum
+from nat.builder.sync_builder import SyncBuilder
+
+chat_llm = SyncBuilder.current().get_llm("nim_llm", wrapper_type=LLMFrameworkEnum.LANGCHAIN)
+movie_agent = SyncBuilder.current().get_function("movie_agent")
+
+
+class ConversationState(TypedDict):
+  messages: Annotated[list, add_messages]
+
+
+def classify_node(state: ConversationState):
+  response = chat_llm.invoke([
+      {"role": "system", "content": (
+          "You are an intent classifier for a movie database assistant. "
+          "The database contains IMDB movie data: titles, ratings, votes, budgets, and runtimes. "
+          "Classify the user's question as either 'in_domain' or 'out_of_domain'. "
+          "Reply with ONLY one word.\n\n"
+          "in_domain: questions about movies, ratings, top movies, searching movies by title, "
+          "comparing movie ratings, budgets, runtimes.\n\n"
+          "out_of_domain: anything unrelated to movies."
+      )},
+      *state["messages"]
+  ])
+  raw = response.content.strip().lower()
+  return {"messages": [{"role": "assistant", "content": raw}]}
+
+
+def route_intent(state: ConversationState):
+  last = state["messages"][-1].content.strip().lower()
+  if last == "in_domain":
+      return "movie_agent"
+  return "reject"
+
+
+async def movie_agent_node(state: ConversationState):
+  user_query = state["messages"][0].content
+  result = await movie_agent.ainvoke(user_query)
+  return {"messages": [{"role": "assistant", "content": str(result)}]}
+
+
+def reject_node(state: ConversationState):
+  return {"messages": [{"role": "assistant", "content": "Sorry, I can only help with movie-related questions."}]}
+
+
+graph = StateGraph(ConversationState)
+graph.add_node("classify", classify_node)
+graph.add_node("movie_agent", movie_agent_node)
+graph.add_node("reject", reject_node)
+
+graph.add_edge(START, "classify")
+graph.add_conditional_edges("classify", route_intent, {"movie_agent": "movie_agent", "reject": "reject"})
+graph.add_edge("movie_agent", END)
+graph.add_edge("reject", END)
+
+intent_graph = graph.compile()
+#+end_src
+
+#+begin_src bash :tangle movie_intent_workflow.yml                                                                                                                                                   
+function_groups:                                                                                                                                                                        
+    mcp_movies:                                                                                                                                                                           
+      _type: mcp_client
+      server:                                                                                                                                                                             
+        transport: streamable-http
+        url: "http://127.0.0.1:${MCP_PORT}/mcp/"
+
+llms:
+    nim_llm:
+      _type: nim
+      model_name: nvidia/nemotron-3-nano-30b-a3b
+      base_url: https://integrate.api.nvidia.com/v1
+      api_key: ${NVIDIA_API_KEY}
+      temperature: 0.0
+      max_tokens: 1024
+
+functions:
+    movie_agent:
+      _type: react_agent
+      tool_names:
+        - mcp_movies
+      llm_name: nim_llm
+      verbose: true
+      parse_agent_response_max_retries: 3
+
+workflow:
+    _type: langgraph_wrapper
+    graph: movie_intent_classifier.py:intent_graph
+#+end_src
+****** Probe the agent                                            :Code:
+#+begin_src shell :session *shell* :results output :exports both
+pixi run nat run --config_file movie_intent_workflow.yml --input "How do I cook pasta?"
+#+end_src
+
+#+RESULTS:
+#+begin_example
+2026-07-28 01:11:43 - INFO     - nat.cli.commands.start:192 - Starting NAT from config file: 'movie_intent_workflow.yml'
+2026-07-28 01:11:43 - INFO     - nat.plugins.mcp.client.client_impl:614 - Configured to use MCP server at streamable-http:http://127.0.0.1:11644/mcp/
+2026-07-28 01:11:44 - INFO     - mcp.client.streamable_http:193 - Negotiated protocol version: 2025-11-25
+2026-07-28 01:11:44 - WARNING  - nat.builder.function_info:455 - Using provided input_schema for multi-argument function
+2026-07-28 01:11:44 - INFO     - nat.plugins.mcp.client.client_impl:663 - Adding tool search_movies to group
+
+Configuration Summary:
+--------------------
+Workflow Type: langgraph_wrapper
+Number of Functions: 1
+Number of Function Groups: 1
+Number of LLMs: 1
+Number of Embedders: 0
+Number of Memory: 0
+Number of Object Stores: 0
+Number of Retrievers: 0
+Number of TTC Strategies: 0
+Number of Authentication Providers: 0
+
+2026-07-28 01:11:47 - INFO     - nat.runtime.session:329 - Shared workflow built (entry_function=None)
+2026-07-28 01:11:48 - INFO     - nat.front_ends.console.console_front_end_plugin:161 - --------------------------------------------------
+[32mWorkflow Result:
+Sorry, I can only help with movie-related questions.[39m
+--------------------------------------------------
+#+end_example
+
+#+begin_src shell :session *shell* :results output :exports both
+pixi run nat run --config_file movie_intent_workflow.yml --input "What is the capital of France?"
+#+end_src
+
+#+RESULTS:
+#+begin_example
+2026-07-28 01:13:01 - INFO     - nat.cli.commands.start:192 - Starting NAT from config file: 'movie_intent_workflow.yml'
+2026-07-28 01:13:01 - INFO     - nat.plugins.mcp.client.client_impl:614 - Configured to use MCP server at streamable-http:http://127.0.0.1:11644/mcp/
+2026-07-28 01:13:01 - INFO     - mcp.client.streamable_http:193 - Negotiated protocol version: 2025-11-25
+2026-07-28 01:13:01 - WARNING  - nat.builder.function_info:455 - Using provided input_schema for multi-argument function
+2026-07-28 01:13:01 - INFO     - nat.plugins.mcp.client.client_impl:663 - Adding tool search_movies to group
+
+Configuration Summary:
+--------------------
+Workflow Type: langgraph_wrapper
+Number of Functions: 1
+Number of Function Groups: 1
+Number of LLMs: 1
+Number of Embedders: 0
+Number of Memory: 0
+Number of Object Stores: 0
+Number of Retrievers: 0
+Number of TTC Strategies: 0
+Number of Authentication Providers: 0
+
+2026-07-28 01:13:05 - INFO     - nat.runtime.session:329 - Shared workflow built (entry_function=None)
+2026-07-28 01:13:07 - INFO     - nat.front_ends.console.console_front_end_plugin:161 - --------------------------------------------------
+[32mWorkflow Result:
+Sorry, I can only help with movie-related questions.[39m
+--------------------------------------------------
+#+end_example
+
+#+begin_src shell :session *shell* :results output :exports both
+pixi run nat run --config_file movie_intent_workflow.yml --input "what is the rating of the movie The Dark Knight Rises?"
+#+end_src
+
+#+RESULTS:
+#+begin_example
+2026-07-28 01:14:09 - INFO     - nat.cli.commands.start:192 - Starting NAT from config file: 'movie_intent_workflow.yml'
+2026-07-28 01:14:09 - INFO     - nat.plugins.mcp.client.client_impl:614 - Configured to use MCP server at streamable-http:http://127.0.0.1:11644/mcp/
+2026-07-28 01:14:10 - INFO     - mcp.client.streamable_http:193 - Negotiated protocol version: 2025-11-25
+2026-07-28 01:14:10 - WARNING  - nat.builder.function_info:455 - Using provided input_schema for multi-argument function
+2026-07-28 01:14:10 - INFO     - nat.plugins.mcp.client.client_impl:663 - Adding tool search_movies to group
+
+Configuration Summary:
+--------------------
+Workflow Type: langgraph_wrapper
+Number of Functions: 1
+Number of Function Groups: 1
+Number of LLMs: 1
+Number of Embedders: 0
+Number of Memory: 0
+Number of Object Stores: 0
+Number of Retrievers: 0
+Number of TTC Strategies: 0
+Number of Authentication Providers: 0
+
+2026-07-28 01:14:13 - INFO     - nat.runtime.session:329 - Shared workflow built (entry_function=None)
+2026-07-28 01:14:15 - INFO     - nat.plugins.langchain.agent.react_agent.agent:229 - 
+------------------------------
+[AGENT]
+[33mAgent input: what is the rating of the movie The Dark Knight Rises?
+[36mAgent's thoughts: 
+We need to answer the question: "what is the rating of the movie The Dark Knight Rises?" We can use the tool mcp_movies__search_movies with title filter. Provide action input with title: "The Dark Knight Rises". Probably need to search. Then observation will give result. Then we can extract rating. Then final answer.
+
+We need to follow format: first we output Question: ...? Actually the instruction: "You may respond in one of two formats. Use the following format exactly to ask the human to use a tool: Question: the input question you must answer Thought: you should always think about what to do Action: the action to take, should be one of [,mcp_movies__search_movies] Action Input: the input to the action (if there is no required input, include "Action Input: None") Observation[39m
+------------------------------
+2026-07-28 01:14:15 - WARNING  - nat.plugins.langchain.agent.react_agent.agent:384 - [AGENT] ReAct Agent wants to call tool the action to take, should be one of [,mcp_movies__search_movies]. In the ReAct Agent's configuration within the config file,there is no tool with that name: ['mcp_movies__search_movies']
+2026-07-28 01:14:17 - INFO     - nat.plugins.langchain.agent.react_agent.agent:253 - 
+------------------------------
+[AGENT]
+[33mAgent input: what is the rating of the movie The Dark Knight Rises?
+[36mAgent's thoughts: 
+Question: what is the rating of the movie The Dark Knight Rises?
+Thought: I need to find the movie "The Dark Knight Rises" and retrieve its rating. I will use the movie search tool with a title filter and limit the results to 1 to get the most relevant match.
+Action: mcp_movies__search_movies
+Action Input: {"limit": 1, "title": "The Dark Knight Rises"}[39m
+------------------------------
+2026-07-28 01:14:17 - INFO     - nat.plugins.mcp.client.client_base:819 - Calling tool search_movies
+2026-07-28 01:14:17 - INFO     - nat.plugins.langchain.agent.base:278 - 
+------------------------------
+[AGENT]
+[37mCalling tools: mcp_movies__search_movies
+[33mTool's input: {'limit': 1, 'title': 'The Dark Knight Rises'}
+[36mTool's response: 
+[{"movie_id": "29419", "title": "The Dark Knight Rises\u00a0(2012)", "rating": 8.4, "total_votes": 1240780, "budget": 250000000.0, "runtime": "164 min"}][39m
+------------------------------
+2026-07-28 01:14:18 - INFO     - nat.plugins.langchain.agent.react_agent.agent:253 - 
+------------------------------
+[AGENT]
+[33mAgent input: what is the rating of the movie The Dark Knight Rises?
+[36mAgent's thoughts: 
+Final Answer: The rating of *The Dark Knight Rises* is **8.4** (out of 10).[39m
+------------------------------
+2026-07-28 01:14:18 - INFO     - nat.front_ends.console.console_front_end_plugin:161 - --------------------------------------------------
+[32mWorkflow Result:
+The rating of *The Dark Knight Rises* is **8.4** (out of 10).[39m
+--------------------------------------------------
+#+end_example
+***** Telemetry with Phoenix
+****** Start Phoenix observability server                         :Code:
+#+begin_src python :results output :session *python* :exports both
+import os
+import random
+import socket
+
+def find_available_port(start=11000, end=11999):
+    while True:
+        # Randomly select a port between start and end range
+        port = random.randint(start, end)
+        
+        # Try to create a socket and bind to the port
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            try:
+                sock.bind(("localhost", port))
+                # If binding is successful, the port is free
+                return port
+            except OSError:
+                # If binding fails, the port is in use, continue to the next iteration
+                continue
+
+os.environ['PHOENIX_PORT'] = str(find_available_port())
+os.environ['PHOENIX_GRPC_PORT'] = str(find_available_port())
+
+print(f"Available PHOENIX port: {os.environ['PHOENIX_PORT']}")
+print(f"Available PHOENIX_GRPC port: {os.environ['PHOENIX_GRPC_PORT']}")
+#+end_src
+
+#+RESULTS:
+: Available PHOENIX port: 11227
+: Available PHOENIX_GRPC port: 11909
+
+#+begin_src python :results output :session *python* :exports both
+import os, subprocess
+from pathlib import Path
+
+PHOENIX_PORT = int(os.environ["PHOENIX_PORT"])
+
+bin_dir = Path(sys.executable).parent
+phoenix_bin = str(bin_dir / "phoenix")
+
+log = open("phoenix.log", "w")
+phoenix_process = subprocess.Popen(
+    [phoenix_bin, "serve"],
+    stdout=log,
+    stderr=subprocess.STDOUT,
+)
+
+print(f"Server started on http://127.0.0.1:{PHOENIX_PORT} (PID: {phoenix_process.pid})")
+#print(f"Access via port-forwarding at http://localhost:6006")
+print("Logs: phoenix.log")
+#+end_src
+
+#+RESULTS:
+: Server started on http://127.0.0.1:11227 (PID: 56515)
+: Logs: phoenix.log
+****** Configure tracing YAML                            :Text:Protocol:
+#+begin_src bash :tangle movie_intent_workflow_tracing.yml                                                                                                                                                   
+function_groups:                                                                                                                                                                        
+    mcp_movies:                                                                                                                                                                           
+      _type: mcp_client
+      server:                                                                                                                                                                             
+        transport: streamable-http
+        url: "http://127.0.0.1:${MCP_PORT}/mcp/"
+
+general:
+  telemetry:
+    tracing:
+      phoenix:
+        _type: phoenix
+        endpoint: http://localhost:${PHOENIX_PORT}/v1/traces
+        project: movie-mcp
+
+llms:
+    nim_llm:
+      _type: nim
+      model_name: nvidia/nemotron-3-nano-30b-a3b
+      base_url: https://integrate.api.nvidia.com/v1
+      api_key: ${NVIDIA_API_KEY}
+      temperature: 0.0
+      max_tokens: 1024
+
+functions:
+    movie_agent:
+      _type: react_agent
+      tool_names:
+        - mcp_movies
+      llm_name: nim_llm
+      verbose: true
+      parse_agent_response_max_retries: 3
+
+workflow:
+    _type: langgraph_wrapper
+    graph: movie_intent_classifier.py:intent_graph
+#+end_src
+****** Test the workflow                                          :Code:
+Go to http://127.0.0.1:11227 
+#+begin_src shell :session *shell* :results output :exports both
+export PHOENIX_PORT=11227
+pixi run nat run --config_file movie_intent_workflow_tracing.yml --input "How do I cook pasta?"
+#+end_src
+
+#+RESULTS:
+#+begin_example
+2026-07-28 01:46:10 - INFO     - nat.cli.commands.start:192 - Starting NAT from config file: 'movie_intent_workflow_tracing.yml'
+2026-07-28 01:46:12 - INFO     - phoenix.config:2861 - 📋 Ensuring phoenix working directory: /home/den/.phoenix
+2026-07-28 01:46:15 - INFO     - alembic.runtime.plugins:37 - setup plugin alembic.autogenerate.schemas
+2026-07-28 01:46:15 - INFO     - alembic.runtime.plugins:37 - setup plugin alembic.autogenerate.tables
+2026-07-28 01:46:15 - INFO     - alembic.runtime.plugins:37 - setup plugin alembic.autogenerate.types
+2026-07-28 01:46:15 - INFO     - alembic.runtime.plugins:37 - setup plugin alembic.autogenerate.constraints
+2026-07-28 01:46:15 - INFO     - alembic.runtime.plugins:37 - setup plugin alembic.autogenerate.defaults
+2026-07-28 01:46:15 - INFO     - alembic.runtime.plugins:37 - setup plugin alembic.autogenerate.comments
+2026-07-28 01:46:42 - INFO     - nat.plugins.mcp.client.client_impl:614 - Configured to use MCP server at streamable-http:http://127.0.0.1:11644/mcp/
+2026-07-28 01:46:43 - INFO     - mcp.client.streamable_http:193 - Negotiated protocol version: 2025-11-25
+2026-07-28 01:46:43 - WARNING  - nat.builder.function_info:455 - Using provided input_schema for multi-argument function
+2026-07-28 01:46:43 - INFO     - nat.plugins.mcp.client.client_impl:663 - Adding tool search_movies to group
+
+Configuration Summary:
+--------------------
+Workflow Type: langgraph_wrapper
+Number of Functions: 1
+Number of Function Groups: 1
+Number of LLMs: 1
+Number of Embedders: 0
+Number of Memory: 0
+Number of Object Stores: 0
+Number of Retrievers: 0
+Number of TTC Strategies: 0
+Number of Authentication Providers: 0
+
+2026-07-28 01:46:46 - INFO     - nat.runtime.session:329 - Shared workflow built (entry_function=None)
+2026-07-28 01:46:46 - INFO     - nat.observability.exporter_manager:269 - Started exporter 'phoenix'
+2026-07-28 01:46:48 - INFO     - nat.observability.exporter.base_exporter:283 - Event stream completed. No more events will arrive.
+2026-07-28 01:46:48 - INFO     - nat.observability.exporter_manager:275 - Stopped exporter 'phoenix'
+2026-07-28 01:46:48 - INFO     - nat.front_ends.console.console_front_end_plugin:161 - --------------------------------------------------
+[32mWorkflow Result:
+Sorry, I can only help with movie-related questions.[39m
+--------------------------------------------------
+#+end_example
+
+#+begin_src shell :session *shell* :results output :exports both
+pixi run nat run --config_file movie_intent_workflow_tracing.yml --input "What is the capital of France?"
+#+end_src
+
+#+RESULTS:
+#+begin_example
+2026-07-28 01:48:42 - INFO     - nat.cli.commands.start:192 - Starting NAT from config file: 'movie_intent_workflow_tracing.yml'
+2026-07-28 01:48:44 - INFO     - phoenix.config:2861 - 📋 Ensuring phoenix working directory: /home/den/.phoenix
+2026-07-28 01:48:47 - INFO     - alembic.runtime.plugins:37 - setup plugin alembic.autogenerate.schemas
+2026-07-28 01:48:47 - INFO     - alembic.runtime.plugins:37 - setup plugin alembic.autogenerate.tables
+2026-07-28 01:48:47 - INFO     - alembic.runtime.plugins:37 - setup plugin alembic.autogenerate.types
+2026-07-28 01:48:47 - INFO     - alembic.runtime.plugins:37 - setup plugin alembic.autogenerate.constraints
+2026-07-28 01:48:47 - INFO     - alembic.runtime.plugins:37 - setup plugin alembic.autogenerate.defaults
+2026-07-28 01:48:47 - INFO     - alembic.runtime.plugins:37 - setup plugin alembic.autogenerate.comments
+2026-07-28 01:49:13 - INFO     - nat.plugins.mcp.client.client_impl:614 - Configured to use MCP server at streamable-http:http://127.0.0.1:11644/mcp/
+2026-07-28 01:49:13 - INFO     - mcp.client.streamable_http:193 - Negotiated protocol version: 2025-11-25
+2026-07-28 01:49:13 - WARNING  - nat.builder.function_info:455 - Using provided input_schema for multi-argument function
+2026-07-28 01:49:13 - INFO     - nat.plugins.mcp.client.client_impl:663 - Adding tool search_movies to group
+
+Configuration Summary:
+--------------------
+Workflow Type: langgraph_wrapper
+Number of Functions: 1
+Number of Function Groups: 1
+Number of LLMs: 1
+Number of Embedders: 0
+Number of Memory: 0
+Number of Object Stores: 0
+Number of Retrievers: 0
+Number of TTC Strategies: 0
+Number of Authentication Providers: 0
+
+2026-07-28 01:49:16 - INFO     - nat.runtime.session:329 - Shared workflow built (entry_function=None)
+2026-07-28 01:49:16 - INFO     - nat.observability.exporter_manager:269 - Started exporter 'phoenix'
+2026-07-28 01:49:17 - INFO     - nat.observability.exporter.base_exporter:283 - Event stream completed. No more events will arrive.
+2026-07-28 01:49:17 - INFO     - nat.observability.exporter_manager:275 - Stopped exporter 'phoenix'
+2026-07-28 01:49:17 - INFO     - nat.front_ends.console.console_front_end_plugin:161 - --------------------------------------------------
+[32mWorkflow Result:
+Sorry, I can only help with movie-related questions.[39m
+--------------------------------------------------
+#+end_example
+
+#+begin_src shell :session *shell* :results output :exports both
+pixi run nat run --config_file movie_intent_workflow_tracing.yml --input "what is the rating of the movie The Dark Knight Rises?"
+#+end_src
+
+#+RESULTS:
+#+begin_example
+2026-07-28 01:51:02 - INFO     - nat.cli.commands.start:192 - Starting NAT from config file: 'movie_intent_workflow_tracing.yml'
+2026-07-28 01:51:04 - INFO     - phoenix.config:2861 - 📋 Ensuring phoenix working directory: /home/den/.phoenix
+2026-07-28 01:51:07 - INFO     - alembic.runtime.plugins:37 - setup plugin alembic.autogenerate.schemas
+2026-07-28 01:51:07 - INFO     - alembic.runtime.plugins:37 - setup plugin alembic.autogenerate.tables
+2026-07-28 01:51:07 - INFO     - alembic.runtime.plugins:37 - setup plugin alembic.autogenerate.types
+2026-07-28 01:51:07 - INFO     - alembic.runtime.plugins:37 - setup plugin alembic.autogenerate.constraints
+2026-07-28 01:51:07 - INFO     - alembic.runtime.plugins:37 - setup plugin alembic.autogenerate.defaults
+2026-07-28 01:51:07 - INFO     - alembic.runtime.plugins:37 - setup plugin alembic.autogenerate.comments
+2026-07-28 01:51:32 - INFO     - nat.plugins.mcp.client.client_impl:614 - Configured to use MCP server at streamable-http:http://127.0.0.1:11644/mcp/
+2026-07-28 01:51:33 - INFO     - mcp.client.streamable_http:193 - Negotiated protocol version: 2025-11-25
+2026-07-28 01:51:33 - WARNING  - nat.builder.function_info:455 - Using provided input_schema for multi-argument function
+2026-07-28 01:51:33 - INFO     - nat.plugins.mcp.client.client_impl:663 - Adding tool search_movies to group
+
+Configuration Summary:
+--------------------
+Workflow Type: langgraph_wrapper
+Number of Functions: 1
+Number of Function Groups: 1
+Number of LLMs: 1
+Number of Embedders: 0
+Number of Memory: 0
+Number of Object Stores: 0
+Number of Retrievers: 0
+Number of TTC Strategies: 0
+Number of Authentication Providers: 0
+
+2026-07-28 01:51:36 - INFO     - nat.runtime.session:329 - Shared workflow built (entry_function=None)
+2026-07-28 01:51:36 - INFO     - nat.observability.exporter_manager:269 - Started exporter 'phoenix'
+2026-07-28 01:51:38 - INFO     - nat.plugins.langchain.agent.react_agent.agent:229 - 
+------------------------------
+[AGENT]
+[33mAgent input: what is the rating of the movie The Dark Knight Rises?
+[36mAgent's thoughts: 
+Question: what is the rating of the movie The Dark Knight Rises?
+Thought: I need to look up the movie to retrieve its rating.
+Action: mcp_movies__search_movies
+Action Input: {'title': 'The Dark Knight Rises'}[39m
+------------------------------
+2026-07-28 01:51:38 - INFO     - nat.plugins.mcp.client.client_base:819 - Calling tool search_movies
+2026-07-28 01:51:38 - INFO     - nat.plugins.langchain.agent.base:278 - 
+------------------------------
+[AGENT]
+[37mCalling tools: mcp_movies__search_movies
+[33mTool's input: {'title': 'The Dark Knight Rises'}
+[36mTool's response: 
+[{"movie_id": "29419", "title": "The Dark Knight Rises\u00a0(2012)", "rating": 8.4, "total_votes": 1240780, "budget": 250000000.0, "runtime": "164 min"}][39m
+------------------------------
+2026-07-28 01:51:40 - INFO     - nat.plugins.langchain.agent.react_agent.agent:253 - 
+------------------------------
+[AGENT]
+[33mAgent input: what is the rating of the movie The Dark Knight Rises?
+[36mAgent's thoughts: 
+Final Answer: The rating of *The Dark Knight Rises* is **8.4**.[39m
+------------------------------
+2026-07-28 01:51:40 - INFO     - nat.observability.exporter.base_exporter:283 - Event stream completed. No more events will arrive.
+2026-07-28 01:51:40 - INFO     - nat.observability.exporter_manager:275 - Stopped exporter 'phoenix'
+2026-07-28 01:51:40 - INFO     - nat.front_ends.console.console_front_end_plugin:161 - --------------------------------------------------
+[32mWorkflow Result:
+The rating of *The Dark Knight Rises* is **8.4**.[39m
+--------------------------------------------------
+#+end_example
+**** Cleanup                                                        :Code:
+#+begin_src python :results output :session *python* :exports both
+# Kill MCP Server
+mcp_server_process.terminate()
+mcp_server_process.wait()
+
+# Kill Phoenix
+phoenix_process.terminate()
+phoenix_process.wait()
+#+end_src
+
+#+RESULTS:
+
+*** Milestones                                                       :Text:
+- NAT CLI & YAML configurations
+- ReAct agents & intent classifier
+- Telemetry
+
+* License
+This work is licensed under a [[https://creativecommons.org/licenses/by/4.0/][CC-BY-4.0]] licence.
+Most of the code was adapted from materials released by OpenACC-Standard.org under the Creative Commons Attribution 4.0 International License (CC BY 4.0).
+These materials include references to hardware and software developed by other entities; all applicable licensing and copyrights apply.
