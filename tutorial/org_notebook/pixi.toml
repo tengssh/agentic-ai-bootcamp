@@ -17,6 +17,6 @@ mcp = { version = ">=1.12.3", extras = ["cli"] }
 langchain = ">=1.2.12"
 langchain-nvidia-ai-endpoints = ">=0.3.5"
 langgraph = ">=1.1.2"
-nvidia-nat = { version = ">=1.5.0", extras = ["profiling"] }
+nvidia-nat = { version = ">=1.5.0", extras = ["langchain", "mcp", "phoenix", "eval", "profiling"] }
 arize-phoenix = ">=13.15.0"
 strictyaml = ">=1.7.3"
