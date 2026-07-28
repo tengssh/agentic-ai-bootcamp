@@ -17,6 +17,7 @@ This notebook uses materials from the [[https://github.com/klemensnoga/agentic-a
 This is part 1 of this tutorial. Links to all notebooks can be found below:
 - [[01-nim_mcp.org]]
 - [[02-langgraph.org]]
+- [[03-nat.org]]
 
 * Resources
 - European Agentic AI Bootcamp
