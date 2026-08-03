@@ -1,0 +1,1631 @@
+# -*- mode: org -*-
+# -*- coding: utf-8 -*-
+#+TITLE:       Intelligent e-commerce agent
+#+AUTHOR:      tengssh
+#+LANGUAGE:    en
+#+STARTUP:     indent
+#+TAGS: Text(T) Code(C) Visualization(V) Protocol(P) noexport(n)
+#+OPTIONS: toc:3
+#+EXPORT_SELECT_TAGS: export
+#+EXPORT_EXCLUDE_TAGS: noexport inlineimages
+#+COLUMNS: %25ITEM %TODO %3PRIORITY %TAGS
+#+PROPERTY: header-args:shell :var SIF_HOME="/containers/" :results output
+
+* Project overview
+This notebook provides a walkthrough to the challenge of the European Agentic AI Bootcamp.
+
+The following notebooks contain hints for solving the challenge:
+- [[../tutorial/org_notebook/01-nim_mcp.org][01-nim_mcp.org]]
+- [[../tutorial/org_notebook/02-langgraph.org][02-langgraph.org]]
+- [[../tutorial/org_notebook/03-nat.org][03-nat.org]]
+
+* Resources
+- European Agentic AI Bootcamp
+  - [[https://github.com/klemensnoga/agentic-ai-bootcamp]]
+- NVIDIA
+  - [[https://docs.nvidia.com/nim/index.html][NVIDIA Inference Microservices (NIM)]]
+  - [[https://docs.nvidia.com/nemo/agent-toolkit/latest/index.html][NVIDIA NeMo Agent Toolkit (NAT)]]
+- LangGraph
+  - [[https://docs.langchain.com/oss/python/langgraph/overview][LangGraph overview]]
+- Model Context Protocol (MCP)
+  - [[https://modelcontextprotocol.io/specification/latest/server/tools][Tools - Specification]]
+- Agent skills
+  - [[https://agentskills.io/specification][Specification]]
+
+* Journal
+** 2026.08.01 15:48
+*** Environment
+**** Set aliases                                                :noexport:
+#+begin_src shell :session *shell* :results output :exports both
+alias ls='ls --color=none'
+alias pixi='apptainer exec $SIF_HOME/base/utilities_ubuntu.sif pixi'
+pixi --version
+alias uv='apptainer exec $SIF_HOME/base/utilities_ubuntu.sif uv'
+uv --version
+#+end_src
+
+#+RESULTS:
+: pixi 0.73.0
+: uv 0.11.31 (x86_64-unknown-linux-gnu)
+
+**** uv/pixi env
+#+begin_src shell :session *shell* :results output :exports both
+find ./ -name uv.lock
+#+end_src
+
+#+RESULTS:
+: ./llm-workflow-test/uv.lock
+: ./llm_workflow/uv.lock
+: ./mcp-server-invoice-test/uv.lock
+: ./mcp-servers/invoice/uv.lock
+: ./nemo_agent_toolkit/uv.lock
+: ./qna-agent-test/uv.lock
+: ./qna_agent/uv.lock
+
+***** Assignment 1-1
+#+begin_src shell :session *shell* :results output :exports both
+cd mcp-servers/invoice/
+uv sync
+cd ../../
+#+end_src
+
+#+RESULTS:
+#+begin_example
+Using CPython 3.12.13
+Creating virtual environment at: .venv
+Resolved 38 packages in 75ms
+   Building mcp-server-invoice @ file:///agentic-ai-bootcamp/solution/mcp-servers/invoice
+      Built mcp-server-invoice @ file:///agentic-ai-bootcamp/solution/mcp-servers/invoice
+Prepared 1 package in 721ms
+warning: Failed to hardlink files; falling back to full copy. This may lead to degraded performance.
+         If the cache and target directories are on different filesystems, hardlinking may not be supported.
+         If this is intentional, set `export UV_LINK_MODE=copy` or use `--link-mode=copy` to suppress this warning.
+Installed 36 packages in 12.93s
+ + annotated-types==0.7.0
+ + anyio==4.12.1
+ + attrs==25.4.0
+ + certifi==2026.1.4
+ + cffi==2.0.0
+ + click==8.3.1
+ + cryptography==46.0.4
+ + h11==0.16.0
+ + httpcore==1.0.9
+ + httpx==0.28.1
+ + httpx-sse==0.4.3
+ + idna==3.11
+ + jsonschema==4.26.0
+ + jsonschema-specifications==2025.9.1
+ + markdown-it-py==4.0.0
+ + mcp==1.26.0
+ + mcp-server-invoice==0.1.0 (from file:///agentic-ai-bootcamp/solution/mcp-servers/invoice)
+ + mdurl==0.1.2
+ + pycparser==3.0
+ + pydantic==2.12.5
+ + pydantic-core==2.41.5
+ + pydantic-settings==2.12.0
+ + pygments==2.19.2
+ + pyjwt==2.10.1
+ + python-dotenv==1.2.1
+ + python-multipart==0.0.22
+ + referencing==0.37.0
+ + rich==14.3.1
+ + rpds-py==0.30.0
+ + shellingham==1.5.4
+ + sse-starlette==3.2.0
+ + starlette==0.52.1
+ + typer==0.21.1
+ + typing-extensions==4.15.0
+ + typing-inspection==0.4.2
+ + uvicorn==0.40.0
+#+end_example
+
+***** Assignment 1-2
+#+begin_src shell :session *shell* :results output :exports both
+cd mcp-server-invoice-test/
+uv sync
+cd ../
+#+end_src
+
+#+RESULTS:
+#+begin_example
+Using CPython 3.13.14
+Creating virtual environment at: .venv
+Resolved 79 packages in 71ms
+warning: Failed to hardlink files; falling back to full copy. This may lead to degraded performance.
+         If the cache and target directories are on different filesystems, hardlinking may not be supported.
+         If this is intentional, set `export UV_LINK_MODE=copy` or use `--link-mode=copy` to suppress this warning.
+Installed 75 packages in 47.95s
+ + aiohappyeyeballs==2.6.1
+ + aiohttp==3.13.3
+ + aiosignal==1.4.0
+ + annotated-types==0.7.0
+ + anyio==4.12.1
+ + attrs==25.4.0
+ + certifi==2026.1.4
+ + cffi==2.0.0
+ + charset-normalizer==3.4.4
+ + click==8.3.1
+ + cryptography==46.0.4
+ + distro==1.9.0
+ + filetype==1.2.0
+ + frozenlist==1.8.0
+ + h11==0.16.0
+ + httpcore==1.0.9
+ + httpx==0.28.1
+ + httpx-sse==0.4.3
+ + idna==3.11
+ + jiter==0.12.0
+ + jsonpatch==1.33
+ + jsonpointer==3.0.0
+ + jsonschema==4.26.0
+ + jsonschema-specifications==2025.9.1
+ + langchain==1.2.7
+ + langchain-core==1.2.7
+ + langchain-nvidia-ai-endpoints==1.0.3
+ + langgraph==1.0.7
+ + langgraph-checkpoint==4.0.0
+ + langgraph-prebuilt==1.0.7
+ + langgraph-sdk==0.3.3
+ + langsmith==0.6.6
+ + markdown-it-py==4.0.0
+ + mcp==1.26.0
+ + mdurl==0.1.2
+ + multidict==6.7.1
+ + numpy==2.4.1
+ + openai==2.16.0
+ + orjson==3.11.5
+ + ormsgpack==1.12.2
+ + packaging==25.0
+ + pandas==3.0.0
+ + propcache==0.4.1
+ + pycparser==3.0
+ + pydantic==2.12.5
+ + pydantic-core==2.41.5
+ + pydantic-settings==2.12.0
+ + pygments==2.19.2
+ + pyjwt==2.10.1
+ + python-dateutil==2.9.0.post0
+ + python-dotenv==1.2.1
+ + python-multipart==0.0.22
+ + pyyaml==6.0.3
+ + referencing==0.37.0
+ + requests==2.32.5
+ + requests-toolbelt==1.0.0
+ + rich==14.3.1
+ + rouge==1.0.1
+ + rpds-py==0.30.0
+ + shellingham==1.5.4
+ + six==1.17.0
+ + sniffio==1.3.1
+ + sse-starlette==3.2.0
+ + starlette==0.52.1
+ + tenacity==9.1.2
+ + tqdm==4.67.1
+ + typer==0.21.1
+ + typing-extensions==4.15.0
+ + typing-inspection==0.4.2
+ + urllib3==2.6.3
+ + uuid-utils==0.14.0
+ + uvicorn==0.40.0
+ + xxhash==3.6.0
+ + yarl==1.22.0
+ + zstandard==0.25.0
+#+end_example
+
+***** Assignment 2-1
+#+begin_src shell :session *shell* :results output :exports both
+cd qna_agent/
+uv sync
+#+end_src
+
+#+RESULTS:
+#+begin_example
+Using CPython 3.13.14
+Creating virtual environment at: .venv
+Resolved 46 packages in 82ms
+Prepared 2 packages in 197ms
+warning: Failed to hardlink files; falling back to full copy. This may lead to degraded performance.
+         If the cache and target directories are on different filesystems, hardlinking may not be supported.
+         If this is intentional, set `export UV_LINK_MODE=copy` or use `--link-mode=copy` to suppress this warning.
+Installed 45 packages in 8.29s
+ + aiohappyeyeballs==2.6.1
+ + aiohttp==3.13.3
+ + aiosignal==1.4.0
+ + annotated-types==0.7.0
+ + anyio==4.12.1
+ + attrs==25.4.0
+ + certifi==2026.1.4
+ + charset-normalizer==3.4.4
+ + filetype==1.2.0
+ + frozenlist==1.8.0
+ + h11==0.16.0
+ + httpcore==1.0.9
+ + httpx==0.28.1
+ + idna==3.11
+ + jsonpatch==1.33
+ + jsonpointer==3.0.0
+ + langchain==1.2.7
+ + langchain-core==1.2.7
+ + langchain-nvidia-ai-endpoints==1.0.2
+ + langgraph==1.0.7
+ + langgraph-checkpoint==4.0.0
+ + langgraph-prebuilt==1.0.7
+ + langgraph-sdk==0.3.3
+ + langsmith==0.6.6
+ + multidict==6.7.1
+ + orjson==3.11.5
+ + ormsgpack==1.12.2
+ + packaging==25.0
+ + propcache==0.4.1
+ + pydantic==2.12.5
+ + pydantic-core==2.41.5
+ + python-dateutil==2.9.0.post0
+ + pyyaml==6.0.3
+ + requests==2.32.5
+ + requests-toolbelt==1.0.0
+ + six==1.17.0
+ + strictyaml==1.7.3
+ + tenacity==9.1.2
+ + typing-extensions==4.15.0
+ + typing-inspection==0.4.2
+ + urllib3==2.6.3
+ + uuid-utils==0.14.0
+ + xxhash==3.6.0
+ + yarl==1.22.0
+ + zstandard==0.25.0
+#+end_example
+
+#+begin_src shell :session *shell* :results output :exports both
+pixi init --format pixi
+pixi add sqlite
+cd ../
+#+end_src
+
+#+RESULTS:
+: ✔ Created /agentic-ai-bootcamp/solution/qna_agent/pixi.toml
+: =3.53.4,<4
+
+***** Assignment 2-2
+#+begin_src shell :session *shell* :results output :exports both
+cd qna-agent-test/
+uv sync
+#+end_src
+
+#+RESULTS:
+#+begin_example
+Using CPython 3.13.14
+Creating virtual environment at: .venv
+Resolved 50 packages in 74ms
+warning: Failed to hardlink files; falling back to full copy. This may lead to degraded performance.
+         If the cache and target directories are on different filesystems, hardlinking may not be supported.
+         If this is intentional, set `export UV_LINK_MODE=copy` or use `--link-mode=copy` to suppress this warning.
+Installed 48 packages in 44.60s
+ + aiohappyeyeballs==2.6.1
+ + aiohttp==3.13.3
+ + aiosignal==1.4.0
+ + annotated-types==0.7.0
+ + anyio==4.12.1
+ + attrs==25.4.0
+ + certifi==2026.1.4
+ + charset-normalizer==3.4.4
+ + filetype==1.2.0
+ + frozenlist==1.8.0
+ + h11==0.16.0
+ + httpcore==1.0.9
+ + httpx==0.28.1
+ + idna==3.11
+ + jsonpatch==1.33
+ + jsonpointer==3.0.0
+ + langchain==1.2.7
+ + langchain-core==1.2.7
+ + langchain-nvidia-ai-endpoints==1.0.2
+ + langgraph==1.0.7
+ + langgraph-checkpoint==4.0.0
+ + langgraph-prebuilt==1.0.7
+ + langgraph-sdk==0.3.3
+ + langsmith==0.6.6
+ + multidict==6.7.1
+ + numpy==2.4.1
+ + orjson==3.11.5
+ + ormsgpack==1.12.2
+ + packaging==25.0
+ + pandas==3.0.0
+ + propcache==0.4.1
+ + pydantic==2.12.5
+ + pydantic-core==2.41.5
+ + python-dateutil==2.9.0.post0
+ + pyyaml==6.0.3
+ + requests==2.32.5
+ + requests-toolbelt==1.0.0
+ + rouge==1.0.1
+ + six==1.17.0
+ + strictyaml==1.7.3
+ + tenacity==9.1.2
+ + typing-extensions==4.15.0
+ + typing-inspection==0.4.2
+ + urllib3==2.6.3
+ + uuid-utils==0.14.0
+ + xxhash==3.6.0
+ + yarl==1.22.0
+ + zstandard==0.25.0
+#+end_example
+
+#+begin_src shell :session *shell* :results output :exports both
+pixi init --format pixi
+pixi add sqlite
+cd ../
+#+end_src
+
+#+RESULTS:
+: ✔ Created /agentic-ai-bootcamp/solution/qna-agent-test/pixi.toml
+: =3.53.4,<4
+
+*** Action
+**** Assignment 1 - Invoice MCP server
+***** Hints                                                        :Text:
+- List tools
+  - [[../tutorial/org_notebook/01-nim_mcp.org::509]]
+  - [[../tutorial/org_notebook/03-nat.org::315]]
+- Call tools
+  - [[../tutorial/org_notebook/01-nim_mcp.org::573]]
+  - [[../tutorial/org_notebook/03-nat.org::333]]
+
+***** Todos                                                        :Text:
+- [[./mcp-servers/invoice/src/mcp_server_invoice/server_http.py::async def handle_list_tools]]
+#+begin_src python
+    @mcp.list_tools()
+    async def handle_list_tools() -> list[types.Tool]:
+        ## TODO
+        ## return schema for tools
+        return [
+            types.Tool(
+                name="invoice_refund",
+                description="Refund invoice",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "invoice_id": {"type": "number", "description": "ID"},
+                        "invoice_line_ids": {"type": "array", "items": {"type": "number"}, "description": "Line IDs"},
+                        "mock": {"type": "boolean", "description": "For testing"},
+                    },
+                    "required": [],
+                },
+            ),
+            types.Tool(
+                name="invoice_lookup",
+                description="Lookup invoice",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "customer_first_name": {"type": "string", "description": "First name"},
+                        "customer_last_name": {"type": "string", "description": "Last name"},
+                        "customer_phone": {"type": "string", "description": "Phone"},
+                        "track_name": {"type": "string", "description": "Track name"},
+                        "album_title": {"type": "string", "description": "Album title"},
+                        "artist_name": {"type": "string", "description": "Artist name"},
+                        "purchase_date_iso_8601": {"type": "string", "description": "Purchase date"},
+                    },
+                    "required": ["customer_first_name", "customer_last_name", "customer_phone"],
+                },
+            ),
+        ]
+#+end_src
+
+- [[./mcp-servers/invoice/src/mcp_server_invoice/server_http.py::async def handle_call_tool(name]]
+#+begin_src python
+    @mcp.call_tool()
+    async def handle_call_tool(name: str, args: dict[str, Any] | None):
+        ## TODO
+        ## implement tool calling logic
+        args = args or {}
+
+        if name == "invoice_refund":
+            return invoice._invoice_refund(
+                invoice_id=args.get("invoice_id"),
+                invoice_line_ids=args.get("invoice_line_ids"),
+                mock=args.get("mock", True),
+            )
+        elif name == "invoice_lookup":
+            return invoice._invoice_lookup(
+                customer_first_name=args.get("customer_first_name"),
+                customer_last_name=args.get("customer_last_name"),
+                customer_phone=args.get("customer_phone"),
+                track_name=args.get("track_name"),
+                album_title=args.get("album_title"),
+                artist_name=args.get("artist_name"),
+                purchase_date_iso_8601=args.get("purchase_date_iso_8601"),
+            )
+        else:
+            return [types.TextContent(
+                type="text",
+                text=json.dumps({"error": f"Unknown tool: {name}"})
+            )]
+#+end_src
+
+***** Testing                                             :Code:Protocol:
+- Start MCP server
+#+begin_src shell :session *shell* :results output :exports both
+pkill -f mcp-server-invoice
+export MCP_PORT=8123
+cd mcp-servers/invoice && uv run mcp-server-invoice &
+#+end_src
+
+#+RESULTS:
+: SIF_HOME/base/utilities_ubuntu.sif uv run mcp-server-invoice
+: [1] 50378
+
+- Test tool call
+#+begin_src shell :session *shell* :results output :exports both
+(cd mcp-server-invoice-test && uv run main.py) 
+#+end_src
+
+#+RESULTS:
+#+begin_example
+[32mINFO[0m:     127.0.0.1:49596 - "[1mPOST /mcp HTTP/1.1[0m" [33m307 Temporary Redirect[0m
+[32mINFO[0m:     127.0.0.1:49596 - "[1mPOST /mcp/ HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     127.0.0.1:49596 - "[1mPOST /mcp HTTP/1.1[0m" [33m307 Temporary Redirect[0m
+[32mINFO[0m:     127.0.0.1:49596 - "[1mPOST /mcp/ HTTP/1.1[0m" [32m202 Accepted[0m
+[32mINFO[0m:     127.0.0.1:49600 - "[1mPOST /mcp HTTP/1.1[0m" [33m307 Temporary Redirect[0m
+[32mINFO[0m:     127.0.0.1:49600 - "[1mPOST /mcp/ HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     127.0.0.1:49600 - "[1mPOST /mcp HTTP/1.1[0m" [33m307 Temporary Redirect[0m
+[32mINFO[0m:     127.0.0.1:49600 - "[1mPOST /mcp/ HTTP/1.1[0m" [32m200 OK[0m
+[
+    {
+        "invoice_line_id": 2217,
+        "track_name": "Desire",
+        "artist_name": "U2",
+        "purchase_date": "2013-12-09 00:00:00",
+        "quantity_purchased": 1,
+        "price_per_unit": 0.99
+    },
+    {
+        "invoice_line_id": 2218,
+        "track_name": "Pride (In The Name Of Love)",
+        "artist_name": "U2",
+        "purchase_date": "2013-12-09 00:00:00",
+        "quantity_purchased": 1,
+        "price_per_unit": 0.99
+    },
+    {
+        "invoice_line_id": 2219,
+        "track_name": "The Star Spangled Banner",
+        "artist_name": "U2",
+        "purchase_date": "2013-12-09 00:00:00",
+        "quantity_purchased": 1,
+        "price_per_unit": 0.99
+    },
+    {
+        "invoice_line_id": 2220,
+        "track_name": "I Still Haven't Found What I'm Looking For",
+        "artist_name": "U2",
+        "purchase_date": "2013-12-09 00:00:00",
+        "quantity_purchased": 1,
+        "price_per_unit": 0.99
+    },
+    {
+        "invoice_line_id": 2221,
+        "track_name": "Sweetest Thing",
+        "artist_name": "U2",
+        "purchase_date": "2013-12-09 00:00:00",
+        "quantity_purchased": 1,
+        "price_per_unit": 0.99
+    },
+    {
+        "invoice_line_id": 2222,
+        "track_name": "Seconds",
+        "artist_name": "U2",
+        "purchase_date": "2013-12-09 00:00:00",
+        "quantity_purchased": 1,
+        "price_per_unit": 0.99
+    },
+    {
+        "invoice_line_id": 2223,
+        "track_name": "Red Light",
+        "artist_name": "U2",
+        "purchase_date": "2013-12-09 00:00:00",
+        "quantity_purchased": 1,
+        "price_per_unit": 0.99
+    },
+    {
+        "invoice_line_id": 2224,
+        "track_name": "Lemon",
+        "artist_name": "U2",
+        "purchase_date": "2013-12-09 00:00:00",
+        "quantity_purchased": 1,
+        "price_per_unit": 0.99
+    },
+    {
+        "invoice_line_id": 2225,
+        "track_name": "The Wanderer",
+        "artist_name": "U2",
+        "purchase_date": "2013-12-09 00:00:00",
+        "quantity_purchased": 1,
+        "price_per_unit": 0.99
+    }
+]
+#+end_example
+
+**** Assignment 2 - QNA agent
+***** Hints                                                        :Text:
+- Skills
+  - [[../tutorial/org_notebook/02-langgraph.org::363]]
+***** Todos
+#+begin_src shell :session *shell* :results output :exports both
+cd qna_agent
+ls
+#+end_src
+
+#+RESULTS:
+: README.md  main.py  notobvious.db  pyproject.toml  skills  skills_ref  uv.lock
+
+****** Inspect =notobvious.db=                                      :Code:
+#+begin_src shell :session *shell* :results output :exports both
+uv tool run sqlite-utils schema notobvious.db
+#+end_src
+
+#+RESULTS:
+#+begin_example
+Downloading pip (1.7MiB)
+ Downloaded pip
+Installed 9 packages in 57ms
+CREATE TABLE [Album]
+(
+    [AlbumId] INTEGER  NOT NULL,
+    [Title] NVARCHAR(160)  NOT NULL,
+    [ArtistId] INTEGER  NOT NULL,
+    CONSTRAINT [PK_Album] PRIMARY KEY  ([AlbumId]),
+    FOREIGN KEY ([ArtistId]) REFERENCES [Artist] ([ArtistId]) 
+		ON DELETE NO ACTION ON UPDATE NO ACTION
+);
+CREATE TABLE [Artist]
+(
+    [ArtistId] INTEGER  NOT NULL,
+    [Name] NVARCHAR(120),
+    CONSTRAINT [PK_Artist] PRIMARY KEY  ([ArtistId])
+);
+CREATE TABLE [Customer]
+(
+    [CustomerId] INTEGER  NOT NULL,
+    [FirstName] NVARCHAR(40)  NOT NULL,
+    [LastName] NVARCHAR(20)  NOT NULL,
+    [Company] NVARCHAR(80),
+    [Address] NVARCHAR(70),
+    [City] NVARCHAR(40),
+    [State] NVARCHAR(40),
+    [Country] NVARCHAR(40),
+    [PostalCode] NVARCHAR(10),
+    [Phone] NVARCHAR(24),
+    [Fax] NVARCHAR(24),
+    [Email] NVARCHAR(60)  NOT NULL,
+    [SupportRepId] INTEGER,
+    CONSTRAINT [PK_Customer] PRIMARY KEY  ([CustomerId]),
+    FOREIGN KEY ([SupportRepId]) REFERENCES [Employee] ([EmployeeId]) 
+		ON DELETE NO ACTION ON UPDATE NO ACTION
+);
+CREATE TABLE [Employee]
+(
+    [EmployeeId] INTEGER  NOT NULL,
+    [LastName] NVARCHAR(20)  NOT NULL,
+    [FirstName] NVARCHAR(20)  NOT NULL,
+    [Title] NVARCHAR(30),
+    [ReportsTo] INTEGER,
+    [BirthDate] DATETIME,
+    [HireDate] DATETIME,
+    [Address] NVARCHAR(70),
+    [City] NVARCHAR(40),
+    [State] NVARCHAR(40),
+    [Country] NVARCHAR(40),
+    [PostalCode] NVARCHAR(10),
+    [Phone] NVARCHAR(24),
+    [Fax] NVARCHAR(24),
+    [Email] NVARCHAR(60),
+    CONSTRAINT [PK_Employee] PRIMARY KEY  ([EmployeeId]),
+    FOREIGN KEY ([ReportsTo]) REFERENCES [Employee] ([EmployeeId]) 
+		ON DELETE NO ACTION ON UPDATE NO ACTION
+);
+CREATE TABLE [Genre]
+(
+    [GenreId] INTEGER  NOT NULL,
+    [Name] NVARCHAR(120),
+    CONSTRAINT [PK_Genre] PRIMARY KEY  ([GenreId])
+);
+CREATE TABLE [Invoice]
+(
+    [InvoiceId] INTEGER  NOT NULL,
+    [CustomerId] INTEGER  NOT NULL,
+    [InvoiceDate] DATETIME  NOT NULL,
+    [BillingAddress] NVARCHAR(70),
+    [BillingCity] NVARCHAR(40),
+    [BillingState] NVARCHAR(40),
+    [BillingCountry] NVARCHAR(40),
+    [BillingPostalCode] NVARCHAR(10),
+    [Total] NUMERIC(10,2)  NOT NULL,
+    CONSTRAINT [PK_Invoice] PRIMARY KEY  ([InvoiceId]),
+    FOREIGN KEY ([CustomerId]) REFERENCES [Customer] ([CustomerId]) 
+		ON DELETE NO ACTION ON UPDATE NO ACTION
+);
+CREATE TABLE [InvoiceLine]
+(
+    [InvoiceLineId] INTEGER  NOT NULL,
+    [InvoiceId] INTEGER  NOT NULL,
+    [TrackId] INTEGER  NOT NULL,
+    [UnitPrice] NUMERIC(10,2)  NOT NULL,
+    [Quantity] INTEGER  NOT NULL,
+    CONSTRAINT [PK_InvoiceLine] PRIMARY KEY  ([InvoiceLineId]),
+    FOREIGN KEY ([InvoiceId]) REFERENCES [Invoice] ([InvoiceId]) 
+		ON DELETE NO ACTION ON UPDATE NO ACTION,
+    FOREIGN KEY ([TrackId]) REFERENCES [Track] ([TrackId]) 
+		ON DELETE NO ACTION ON UPDATE NO ACTION
+);
+CREATE TABLE [MediaType]
+(
+    [MediaTypeId] INTEGER  NOT NULL,
+    [Name] NVARCHAR(120),
+    CONSTRAINT [PK_MediaType] PRIMARY KEY  ([MediaTypeId])
+);
+CREATE TABLE [Playlist]
+(
+    [PlaylistId] INTEGER  NOT NULL,
+    [Name] NVARCHAR(120),
+    CONSTRAINT [PK_Playlist] PRIMARY KEY  ([PlaylistId])
+);
+CREATE TABLE [PlaylistTrack]
+(
+    [PlaylistId] INTEGER  NOT NULL,
+    [TrackId] INTEGER  NOT NULL,
+    CONSTRAINT [PK_PlaylistTrack] PRIMARY KEY  ([PlaylistId], [TrackId]),
+    FOREIGN KEY ([PlaylistId]) REFERENCES [Playlist] ([PlaylistId]) 
+		ON DELETE NO ACTION ON UPDATE NO ACTION,
+    FOREIGN KEY ([TrackId]) REFERENCES [Track] ([TrackId]) 
+		ON DELETE NO ACTION ON UPDATE NO ACTION
+);
+CREATE TABLE [Track]
+(
+    [TrackId] INTEGER  NOT NULL,
+    [Name] NVARCHAR(200)  NOT NULL,
+    [AlbumId] INTEGER,
+    [MediaTypeId] INTEGER  NOT NULL,
+    [GenreId] INTEGER,
+    [Composer] NVARCHAR(220),
+    [Milliseconds] INTEGER  NOT NULL,
+    [Bytes] INTEGER,
+    [UnitPrice] NUMERIC(10,2)  NOT NULL,
+    CONSTRAINT [PK_Track] PRIMARY KEY  ([TrackId]),
+    FOREIGN KEY ([AlbumId]) REFERENCES [Album] ([AlbumId]) 
+		ON DELETE NO ACTION ON UPDATE NO ACTION,
+    FOREIGN KEY ([GenreId]) REFERENCES [Genre] ([GenreId]) 
+		ON DELETE NO ACTION ON UPDATE NO ACTION,
+    FOREIGN KEY ([MediaTypeId]) REFERENCES [MediaType] ([MediaTypeId]) 
+		ON DELETE NO ACTION ON UPDATE NO ACTION
+);
+CREATE INDEX [IFK_AlbumArtistId] ON [Album] ([ArtistId]);
+CREATE INDEX [IFK_CustomerSupportRepId] ON [Customer] ([SupportRepId]);
+CREATE INDEX [IFK_EmployeeReportsTo] ON [Employee] ([ReportsTo]);
+CREATE INDEX [IFK_InvoiceCustomerId] ON [Invoice] ([CustomerId]);
+CREATE INDEX [IFK_InvoiceLineInvoiceId] ON [InvoiceLine] ([InvoiceId]);
+CREATE INDEX [IFK_InvoiceLineTrackId] ON [InvoiceLine] ([TrackId]);
+CREATE INDEX [IFK_PlaylistTrackTrackId] ON [PlaylistTrack] ([TrackId]);
+CREATE INDEX [IFK_TrackAlbumId] ON [Track] ([AlbumId]);
+CREATE INDEX [IFK_TrackGenreId] ON [Track] ([GenreId]);
+CREATE INDEX [IFK_TrackMediaTypeId] ON [Track] ([MediaTypeId]);
+#+end_example
+
+****** Write =SKILL.md=                                             :Text:
+#+begin_src shell :session *shell* :results silent
+cat << 'EOF' > skills/music-store-assistant/SKILL.md
+---
+name: music-store-assistant
+description: "Database schema and query execution for music store data. 
+Note: The skill file is located at skills/.../SKILL.md inside this folder. Always run cat on SKILL.md (e.g., cat /path/to/skill/SKILL.md)."
+---
+# Music Store Schema
+
+## Tables
+
+### Artist
+- ArtistId (PRIMARY KEY)
+- Name
+
+### Album
+- AlbumId (PRIMARY KEY)
+- Title
+- ArtistId (FOREIGN KEY -> Artist.ArtistId)
+
+### Track
+- TrackId (PRIMARY KEY)
+- Name
+- AlbumId (FOREIGN KEY -> Album.AlbumId)
+- MediaTypeId (FOREIGN KEY -> MediaType.MediaTypeId)
+- GenreId (FOREIGN KEY -> Genre.GenreId)
+- Composer
+- Milliseconds
+- Bytes
+- UnitPrice
+
+### Customer
+- CustomerId (PRIMARY KEY)
+- FirstName
+- LastName
+- Company
+- Address
+- City
+- State
+- Country
+- PostalCode
+- Phone
+- Fax
+- Email
+- SupportRepId (FOREIGN KEY -> Employee.EmployeeId)
+
+### Employee
+- EmployeeId (PRIMARY KEY)
+- LastName
+- FirstName
+- Title
+- ReportsTo (FOREIGN KEY -> Employee.EmployeeId)
+- BirthDate
+- HireDate
+- Address
+- City
+- State
+- Country
+- PostalCode
+- Phone
+- Fax
+- Email
+
+### Genre
+- GenreId (PRIMARY KEY)
+- Name
+
+### MediaType
+- MediaTypeId (PRIMARY KEY)
+- Name
+
+### Invoice
+- InvoiceId (PRIMARY KEY)
+- CustomerId (FOREIGN KEY -> Customer.CustomerId)
+- InvoiceDate
+- BillingAddress
+- BillingCity
+- BillingState
+- BillingCountry
+- BillingPostalCode
+- Total
+
+### InvoiceLine
+- InvoiceLineId (PRIMARY KEY)
+- InvoiceId (FOREIGN KEY -> Invoice.InvoiceId)
+- TrackId (FOREIGN KEY -> Track.TrackId)
+- UnitPrice
+- Quantity
+
+## Example Query
+
+-- Get all artists with more than 1 album
+SELECT ArtistId, Name, COUNT(*) AS total_albums
+FROM Artist
+JOIN Album USING (ArtistId)
+GROUP BY ArtistId, Name
+HAVING total_albums > 1
+ORDER BY total_albums DESC;
+EOF
+#+end_src
+
+#+RESULTS:
+***** Testing                                             :Code:Protocol:
+- In [[./qna_agent/main.py]], replace =openai/gpt-oss-120b= with =nvidia/llama-3.3-nemotron-super-49b-v1.5= due to Gateway Timeout
+#+begin_src shell :session *shell* :results output :exports both
+cd ../qna-agent-test
+ls
+#+end_src
+
+#+RESULTS:
+: README.md  main.py  pixi.lock  pixi.toml  pyproject.toml  uv.lock
+
+#+begin_src shell :session *shell* :results output :exports both
+source ../../tutorial/org_notebook/.env
+pixi run uv run main.py --inf-url https://integrate.api.nvidia.com/v1 --nvidia-api-key $NVIDIA_API_KEY
+#+end_src
+
+#+RESULTS:
+#+begin_example
+[1m[values][0m {'messages': [HumanMessage(content='Give me all artists with more than 1 album', additional_kwargs={}, response_metadata={}, id='a48b70e8-73d6-444e-9a5c-19ea517a329a')]}
+[1m[updates][0m {'SkillMiddleware.before_agent': {'skills_metadata': [SkillProperties(name='music-store-assistant', description='Database schema and query execution for music store data. Note: The skill file is located at skills/.../SKILL.md inside this folder. Always run cat on SKILL.md (e.g., cat /path/to/skill/SKILL.md).', license=None, compatibility=None, allowed_tools=None, metadata=None)]}}
+[1m[values][0m {'messages': [HumanMessage(content='Give me all artists with more than 1 album', additional_kwargs={}, response_metadata={}, id='a48b70e8-73d6-444e-9a5c-19ea517a329a')], 'skills_metadata': [SkillProperties(name='music-store-assistant', description='Database schema and query execution for music store data. Note: The skill file is located at skills/.../SKILL.md inside this folder. Always run cat on SKILL.md (e.g., cat /path/to/skill/SKILL.md).', license=None, compatibility=None, allowed_tools=None, metadata=None)]}
+1;\n\nBut the exact column names might vary. The HAVING clause is necessary to filter groups with more than one album.\n\nI need to execute this SQL query using the bash tool with sqlite3 on the database file provided: /agentic-ai-bootcamp/solution/qna_agent/notobvious.db.\n\nSo the steps are: first, read the SKILL.md to confirm the schema, then generate the appropriate SQL, then execute it using the bash tool.\n", 'token_usage': {'prompt_tokens': 517, 'total_tokens': 1027, 'completion_tokens': 510, 'prompt_tokens_details': None}, 'finish_reason': 'tool_calls', 'model_name': 'nvidia/llama-3.3-nemotron-super-49b-v1.5'}, id='lc_run--019fbffd-e8a4-7a30-8170-9da5ee0de725-0', tool_calls=[{'name': 'bash', 'args': {'command': 'cat /agentic-ai-bootcamp/solution/qna_agent/skills/music-store-assistant/SKILL.md'}, 'id': 'chatcmpl-tool-abc79ad3b7c01647', 'type': 'tool_call'}], invalid_tool_calls=[], usage_metadata={'input_tokens': 517, 'output_tokens': 510, 'total_tokens': 1027}, role='assistant')]}}
+1;\n\nBut the exact column names might vary. The HAVING clause is necessary to filter groups with more than one album.\n\nI need to execute this SQL query using the bash tool with sqlite3 on the database file provided: /agentic-ai-bootcamp/solution/qna_agent/notobvious.db.\n\nSo the steps are: first, read the SKILL.md to confirm the schema, then generate the appropriate SQL, then execute it using the bash tool.\n", 'token_usage': {'prompt_tokens': 517, 'total_tokens': 1027, 'completion_tokens': 510, 'prompt_tokens_details': None}, 'finish_reason': 'tool_calls', 'model_name': 'nvidia/llama-3.3-nemotron-super-49b-v1.5'}, id='lc_run--019fbffd-e8a4-7a30-8170-9da5ee0de725-0', tool_calls=[{'name': 'bash', 'args': {'command': 'cat /agentic-ai-bootcamp/solution/qna_agent/skills/music-store-assistant/SKILL.md'}, 'id': 'chatcmpl-tool-abc79ad3b7c01647', 'type': 'tool_call'}], invalid_tool_calls=[], usage_metadata={'input_tokens': 517, 'output_tokens': 510, 'total_tokens': 1027}, role='assistant')], 'skills_metadata': [SkillProperties(name='music-store-assistant', description='Database schema and query execution for music store data. Note: The skill file is located at skills/.../SKILL.md inside this folder. Always run cat on SKILL.md (e.g., cat /path/to/skill/SKILL.md).', license=None, compatibility=None, allowed_tools=None, metadata=None)]}
+1\nORDER BY total_albums DESC;\n', name='bash', id='008a1b6a-b76b-4c17-a6e8-617224e7af80', tool_call_id='chatcmpl-tool-abc79ad3b7c01647')]}}
+1\nORDER BY total_albums DESC;\n', name='bash', id='008a1b6a-b76b-4c17-a6e8-617224e7af80', tool_call_id='chatcmpl-tool-abc79ad3b7c01647')], 'skills_metadata': [SkillProperties(name='music-store-assistant', description='Database schema and query execution for music store data. Note: The skill file is located at skills/.../SKILL.md inside this folder. Always run cat on SKILL.md (e.g., cat /path/to/skill/SKILL.md).', license=None, compatibility=None, allowed_tools=None, metadata=None)]}
+1 ORDER BY total_albums DESC;"'}, 'id': 'chatcmpl-tool-9636705e8514579c', 'type': 'tool_call'}], invalid_tool_calls=[], usage_metadata={'input_tokens': 1006, 'output_tokens': 341, 'total_tokens': 1347}, role='assistant')]}}
+1 ORDER BY total_albums DESC;"'}, 'id': 'chatcmpl-tool-9636705e8514579c', 'type': 'tool_call'}], invalid_tool_calls=[], usage_metadata={'input_tokens': 1006, 'output_tokens': 341, 'total_tokens': 1347}, role='assistant')], 'skills_metadata': [SkillProperties(name='music-store-assistant', description='Database schema and query execution for music store data. Note: The skill file is located at skills/.../SKILL.md inside this folder. Always run cat on SKILL.md (e.g., cat /path/to/skill/SKILL.md).', license=None, compatibility=None, allowed_tools=None, metadata=None)]}
+[1m[updates][0m {'tools': {'messages': [ToolMessage(content="90|Iron Maiden|21\n22|Led Zeppelin|14\n58|Deep Purple|11\n50|Metallica|10\n150|U2|10\n114|Ozzy Osbourne|6\n118|Pearl Jam|5\n21|Various Artists|4\n82|Faith No More|4\n84|Foo Fighters|4\n149|Lost|4\n152|Van Halen|4\n8|Audioslave|3\n27|Gilberto Gil|3\n51|Queen|3\n59|Santana|3\n68|Miles Davis|3\n88|Guns N' Roses|3\n92|Jamiroquai|3\n113|Os Paralamas Do Sucesso|3\n124|R.E.M.|3\n127|Red Hot Chili Peppers|3\n142|The Rolling Stones|3\n156|The Office|3\n226|Eugene Ormandy|3\n248|Berliner Philharmoniker & Herbert Von Karajan|3\n1|AC/DC|2\n2|Accept|2\n6|Antônio Carlos Jobim|2\n11|Black Label Society|2\n12|Black Sabbath|2\n16|Caetano Veloso|2\n18|Chico Science & Nação Zumbi|2\n19|Cidade Negra|2\n42|Milton Nascimento|2\n52|Kiss|2\n53|Spyro Gyra|2\n54|Green Day|2\n76|Creedence Clearwater Revival|2\n77|Cássia Eller|2\n80|Djavan|2\n81|Eric Clapton|2\n99|Legião Urbana|2\n101|Lulu Santos|2\n110|Nirvana|2\n130|Skank|2\n131|Smashing Pumpkins|2\n137|The Black Crowes|2\n139|The Cult|2\n143|The Tea Party|2\n145|Tim Maia|2\n146|Titãs|2\n147|Battlestar Galactica|2\n208|English Concert & Trevor Pinnock|2\n245|Michael Tilson Thomas & San Francisco Symphony|2\n252|Amy Winehouse|2\n", name='bash', id='ecebce67-bd38-4a49-bf9a-91b6295ab5bd', tool_call_id='chatcmpl-tool-9636705e8514579c')]}}
+1 ORDER BY total_albums DESC;"'}, 'id': 'chatcmpl-tool-9636705e8514579c', 'type': 'tool_call'}], invalid_tool_calls=[], usage_metadata={'input_tokens': 1006, 'output_tokens': 341, 'total_tokens': 1347}, role='assistant'), ToolMessage(content="90|Iron Maiden|21\n22|Led Zeppelin|14\n58|Deep Purple|11\n50|Metallica|10\n150|U2|10\n114|Ozzy Osbourne|6\n118|Pearl Jam|5\n21|Various Artists|4\n82|Faith No More|4\n84|Foo Fighters|4\n149|Lost|4\n152|Van Halen|4\n8|Audioslave|3\n27|Gilberto Gil|3\n51|Queen|3\n59|Santana|3\n68|Miles Davis|3\n88|Guns N' Roses|3\n92|Jamiroquai|3\n113|Os Paralamas Do Sucesso|3\n124|R.E.M.|3\n127|Red Hot Chili Peppers|3\n142|The Rolling Stones|3\n156|The Office|3\n226|Eugene Ormandy|3\n248|Berliner Philharmoniker & Herbert Von Karajan|3\n1|AC/DC|2\n2|Accept|2\n6|Antônio Carlos Jobim|2\n11|Black Label Society|2\n12|Black Sabbath|2\n16|Caetano Veloso|2\n18|Chico Science & Nação Zumbi|2\n19|Cidade Negra|2\n42|Milton Nascimento|2\n52|Kiss|2\n53|Spyro Gyra|2\n54|Green Day|2\n76|Creedence Clearwater Revival|2\n77|Cássia Eller|2\n80|Djavan|2\n81|Eric Clapton|2\n99|Legião Urbana|2\n101|Lulu Santos|2\n110|Nirvana|2\n130|Skank|2\n131|Smashing Pumpkins|2\n137|The Black Crowes|2\n139|The Cult|2\n143|The Tea Party|2\n145|Tim Maia|2\n146|Titãs|2\n147|Battlestar Galactica|2\n208|English Concert & Trevor Pinnock|2\n245|Michael Tilson Thomas & San Francisco Symphony|2\n252|Amy Winehouse|2\n", name='bash', id='ecebce67-bd38-4a49-bf9a-91b6295ab5bd', tool_call_id='chatcmpl-tool-9636705e8514579c')], 'skills_metadata': [SkillProperties(name='music-store-assistant', description='Database schema and query execution for music store data. Note: The skill file is located at skills/.../SKILL.md inside this folder. Always run cat on SKILL.md (e.g., cat /path/to/skill/SKILL.md).', license=None, compatibility=None, allowed_tools=None, metadata=None)]}
+1. That makes sense because HAVING is used for conditions on aggregates.\n\nI should use that query. The user probably wants the results ordered by the number of albums descending, so the most prolific artists come first. The example query orders by total_albums DESC, which is good.\n\nNow, I need to execute this query on the provided database. The database is located at /agentic-ai-bootcamp/solution/qna_agent/notobvious.db. Using the bash tool with sqlite3 to run the query.\n\nAfter executing, the response from the tool gives a list of artists with their total albums. The output shows each artist's ID, name, and the count of albums. All entries have total_albums greater than 1, as specified in the HAVING clause.\n\nI should present this data clearly to the user, listing each artist's name and the number of albums they have. It's important to mention that all listed artists have more than one album, as per the user's request. The answer should be straightforward, with the list sorted from highest to lowest album count based on the ORDER BY clause in the query.\n", 'token_usage': {'prompt_tokens': 1604, 'total_tokens': 2162, 'completion_tokens': 558, 'prompt_tokens_details': None}, 'finish_reason': 'stop', 'model_name': 'nvidia/llama-3.3-nemotron-super-49b-v1.5'}, id='lc_run--019fbffe-9347-75f3-8595-a348390c8298-0', tool_calls=[], invalid_tool_calls=[], usage_metadata={'input_tokens': 1604, 'output_tokens': 558, 'total_tokens': 2162}, role='assistant')]}}
+1. That makes sense because HAVING is used for conditions on aggregates.\n\nI should use that query. The user probably wants the results ordered by the number of albums descending, so the most prolific artists come first. The example query orders by total_albums DESC, which is good.\n\nNow, I need to execute this query on the provided database. The database is located at /agentic-ai-bootcamp/solution/qna_agent/notobvious.db. Using the bash tool with sqlite3 to run the query.\n\nAfter executing, the response from the tool gives a list of artists with their total albums. The output shows each artist's ID, name, and the count of albums. All entries have total_albums greater than 1, as specified in the HAVING clause.\n\nI should present this data clearly to the user, listing each artist's name and the number of albums they have. It's important to mention that all listed artists have more than one album, as per the user's request. The answer should be straightforward, with the list sorted from highest to lowest album count based on the ORDER BY clause in the query.\n", 'token_usage': {'prompt_tokens': 1604, 'total_tokens': 2162, 'completion_tokens': 558, 'prompt_tokens_details': None}, 'finish_reason': 'stop', 'model_name': 'nvidia/llama-3.3-nemotron-super-49b-v1.5'}, id='lc_run--019fbffe-9347-75f3-8595-a348390c8298-0', tool_calls=[], invalid_tool_calls=[], usage_metadata={'input_tokens': 1604, 'output_tokens': 558, 'total_tokens': 2162}, role='assistant')], 'skills_metadata': [SkillProperties(name='music-store-assistant', description='Database schema and query execution for music store data. Note: The skill file is located at skills/.../SKILL.md inside this folder. Always run cat on SKILL.md (e.g., cat /path/to/skill/SKILL.md).', license=None, compatibility=None, allowed_tools=None, metadata=None)]}
+Here are all the artists with more than 1 album in the database, sorted by the number of albums descending:
+
+,**Artists with More Than 1 Album:**
+
+1. **Iron Maiden** - 21 albums  
+2. **Led Zeppelin** - 14 albums  
+3. **Deep Purple** - 11 albums  
+4. **Metallica** - 10 albums  
+5. **U2** - 10 albums  
+6. **Ozzy Osbourne** - 6 albums  
+7. **Pearl Jam** - 5 albums  
+8. **Various Artists** - 4 albums  
+9. **Faith No More** - 4 albums  
+10. **Foo Fighters** - 4 albums
+Let me know if you'd like additional details about any specific artist!
+#+end_example
+
+*** Milestones                                                       :Text:
+- Installed uv/pixi envs
+- Assignment 1
+  - Schema for =mcp.list_tools()=, =mcp.call_tool()=
+- Assignment 2
+  - =SKILL.md= for SQLite DB
+
+** 2026.08.02 11:43
+*** Environment
+**** Set aliases                                                :noexport:
+#+begin_src shell :session *shell* :results output :exports both
+alias ls='ls --color=none'
+alias pixi='apptainer exec $SIF_HOME/base/utilities_ubuntu.sif pixi'
+pixi --version
+alias uv='apptainer exec $SIF_HOME/base/utilities_ubuntu.sif uv'
+uv --version
+#+end_src
+
+#+RESULTS:
+: pixi 0.73.0
+: uv 0.11.31 (x86_64-unknown-linux-gnu)
+
+**** uv/pixi envs
+***** Assignment 3-1
+#+begin_src shell :session *shell* :results output :exports both
+cd llm_workflow/
+uv sync
+cd ../
+#+end_src
+
+#+RESULTS:
+#+begin_example
+Using CPython 3.13.14
+Creating virtual environment at: .venv
+Resolved 74 packages in 70ms
+Prepared 1 package in 151ms
+warning: Failed to hardlink files; falling back to full copy. This may lead to degraded performance.
+         If the cache and target directories are on different filesystems, hardlinking may not be supported.
+         If this is intentional, set `export UV_LINK_MODE=copy` or use `--link-mode=copy` to suppress this warning.
+Installed 71 packages in 34.77s
+ + aiohappyeyeballs==2.6.1
+ + aiohttp==3.13.3
+ + aiosignal==1.4.0
+ + annotated-types==0.7.0
+ + anyio==4.12.1
+ + attrs==25.4.0
+ + certifi==2026.1.4
+ + cffi==2.0.0
+ + charset-normalizer==3.4.4
+ + click==8.3.1
+ + cryptography==46.0.4
+ + distro==1.9.0
+ + filetype==1.2.0
+ + frozenlist==1.8.0
+ + h11==0.16.0
+ + httpcore==1.0.9
+ + httpx==0.28.1
+ + httpx-sse==0.4.3
+ + idna==3.11
+ + jiter==0.12.0
+ + jsonpatch==1.33
+ + jsonpointer==3.0.0
+ + jsonschema==4.26.0
+ + jsonschema-specifications==2025.9.1
+ + langchain==1.2.7
+ + langchain-core==1.2.7
+ + langchain-nvidia-ai-endpoints==1.0.3
+ + langgraph==1.0.7
+ + langgraph-checkpoint==4.0.0
+ + langgraph-prebuilt==1.0.7
+ + langgraph-sdk==0.3.3
+ + langsmith==0.6.6
+ + markdown-it-py==4.0.0
+ + mcp==1.26.0
+ + mdurl==0.1.2
+ + multidict==6.7.1
+ + openai==2.16.0
+ + orjson==3.11.5
+ + ormsgpack==1.12.2
+ + packaging==25.0
+ + propcache==0.4.1
+ + pycparser==3.0
+ + pydantic==2.12.5
+ + pydantic-core==2.41.5
+ + pydantic-settings==2.12.0
+ + pygments==2.19.2
+ + pyjwt==2.10.1
+ + python-dotenv==1.2.1
+ + python-multipart==0.0.22
+ + pyyaml==6.0.3
+ + referencing==0.37.0
+ + requests==2.32.5
+ + requests-toolbelt==1.0.0
+ + rich==14.3.1
+ + rpds-py==0.30.0
+ + shellingham==1.5.4
+ + sniffio==1.3.1
+ + sse-starlette==3.2.0
+ + starlette==0.52.1
+ + tabulate==0.9.0
+ + tenacity==9.1.2
+ + tqdm==4.67.1
+ + typer==0.21.1
+ + typing-extensions==4.15.0
+ + typing-inspection==0.4.2
+ + urllib3==2.6.3
+ + uuid-utils==0.14.0
+ + uvicorn==0.40.0
+ + xxhash==3.6.0
+ + yarl==1.22.0
+ + zstandard==0.25.0
+#+end_example
+
+***** Assignment 3-2
+#+begin_src shell :session *shell* :results output :exports both
+cd llm-workflow-test/
+uv sync
+cd ../
+#+end_src
+
+#+RESULTS:
+#+begin_example
+Using CPython 3.13.14
+Creating virtual environment at: .venv
+Resolved 81 packages in 70ms
+warning: Failed to hardlink files; falling back to full copy. This may lead to degraded performance.
+         If the cache and target directories are on different filesystems, hardlinking may not be supported.
+         If this is intentional, set `export UV_LINK_MODE=copy` or use `--link-mode=copy` to suppress this warning.
+Installed 77 packages in 52.76s
+ + aiohappyeyeballs==2.6.1
+ + aiohttp==3.13.3
+ + aiosignal==1.4.0
+ + annotated-types==0.7.0
+ + anyio==4.12.1
+ + attrs==25.4.0
+ + certifi==2026.1.4
+ + cffi==2.0.0
+ + charset-normalizer==3.4.4
+ + click==8.3.1
+ + cryptography==46.0.4
+ + distro==1.9.0
+ + filetype==1.2.0
+ + frozenlist==1.8.0
+ + h11==0.16.0
+ + httpcore==1.0.9
+ + httpx==0.28.1
+ + httpx-sse==0.4.3
+ + idna==3.11
+ + jiter==0.12.0
+ + jsonpatch==1.33
+ + jsonpointer==3.0.0
+ + jsonschema==4.26.0
+ + jsonschema-specifications==2025.9.1
+ + langchain==1.2.7
+ + langchain-core==1.2.7
+ + langchain-nvidia-ai-endpoints==1.0.3
+ + langgraph==1.0.7
+ + langgraph-checkpoint==4.0.0
+ + langgraph-prebuilt==1.0.7
+ + langgraph-sdk==0.3.3
+ + langsmith==0.6.6
+ + markdown-it-py==4.0.0
+ + mcp==1.26.0
+ + mdurl==0.1.2
+ + multidict==6.7.1
+ + numpy==2.4.1
+ + openai==2.16.0
+ + orjson==3.11.5
+ + ormsgpack==1.12.2
+ + packaging==25.0
+ + pandas==3.0.0
+ + propcache==0.4.1
+ + pycparser==3.0
+ + pydantic==2.12.5
+ + pydantic-core==2.41.5
+ + pydantic-settings==2.12.0
+ + pygments==2.19.2
+ + pyjwt==2.10.1
+ + python-dateutil==2.9.0.post0
+ + python-dotenv==1.2.1
+ + python-multipart==0.0.22
+ + pyyaml==6.0.3
+ + referencing==0.37.0
+ + requests==2.32.5
+ + requests-toolbelt==1.0.0
+ + rich==14.3.1
+ + rouge==1.0.1
+ + rpds-py==0.30.0
+ + shellingham==1.5.4
+ + six==1.17.0
+ + sniffio==1.3.1
+ + sse-starlette==3.2.0
+ + starlette==0.52.1
+ + strictyaml==1.7.3
+ + tabulate==0.9.0
+ + tenacity==9.1.2
+ + tqdm==4.67.1
+ + typer==0.21.1
+ + typing-extensions==4.15.0
+ + typing-inspection==0.4.2
+ + urllib3==2.6.3
+ + uuid-utils==0.14.0
+ + uvicorn==0.40.0
+ + xxhash==3.6.0
+ + yarl==1.22.0
+ + zstandard==0.25.0
+#+end_example
+
+***** Assignment 4
+#+begin_src shell :session *shell* :results output :exports both
+cd nemo_agent_toolkit/
+uv sync
+#+end_src
+
+#+RESULTS:
+#+begin_example
+Using CPython 3.13.14
+Creating virtual environment at: .venv
+Resolved 201 packages in 78ms
+Downloading pygments (1.2MiB)
+Downloading pip (1.7MiB)
+Downloading pandas (11.7MiB)
+Downloading pydantic-core (2.0MiB)
+Downloading hf-xet (4.0MiB)
+Downloading uvloop (4.2MiB)
+Downloading networkx (2.0MiB)
+Downloading openai (1.1MiB)
+Downloading cryptography (4.3MiB)
+Downloading tokenizers (3.1MiB)
+Downloading scipy (33.6MiB)
+Downloading numpy (15.9MiB)
+Downloading pyarrow (46.6MiB)
+Downloading sqlalchemy (3.1MiB)
+Downloading aiohttp (1.7MiB)
+Downloading scikit-learn (8.5MiB)
+Downloading arize-phoenix (4.8MiB)
+Downloading langchain-community (2.4MiB)
+Downloading plotly (9.4MiB)
+Downloading sqlean-py (2.9MiB)
+Downloading litellm (14.9MiB)
+Downloading grpcio (6.5MiB)
+Downloading botocore (13.4MiB)
+Downloading tiktoken (1.1MiB)
+ Downloaded tiktoken
+ Downloaded pygments
+   Building wikipedia==1.4.0
+ Downloaded aiohttp
+ Downloaded pydantic-core
+ Downloaded pip
+ Downloaded networkx
+ Downloaded tokenizers
+ Downloaded sqlean-py
+ Downloaded sqlalchemy
+ Downloaded hf-xet
+ Downloaded uvloop
+ Downloaded cryptography
+ Downloaded arize-phoenix
+ Downloaded openai
+ Downloaded langchain-community
+ Downloaded grpcio
+ Downloaded scikit-learn
+ Downloaded plotly
+ Downloaded numpy
+ Downloaded botocore
+ Downloaded scipy
+ Downloaded pandas
+ Downloaded pyarrow
+ Downloaded litellm
+      Built wikipedia==1.4.0
+Prepared 165 packages in 7.71s
+warning: Failed to hardlink files; falling back to full copy. This may lead to degraded performance.
+         If the cache and target directories are on different filesystems, hardlinking may not be supported.
+         If this is intentional, set `export UV_LINK_MODE=copy` or use `--link-mode=copy` to suppress this warning.
+Installed 198 packages in 3m 26s
+ + aioboto3==15.5.0
+ + aiobotocore==2.25.1
+ + aiofiles==25.1.0
+ + aiohappyeyeballs==2.6.1
+ + aiohttp==3.13.5
+ + aioitertools==0.13.0
+ + aiorwlock==1.5.1
+ + aiosignal==1.4.0
+ + aiosqlite==0.22.1
+ + alembic==1.18.4
+ + annotated-doc==0.0.4
+ + annotated-types==0.7.0
+ + anyio==4.13.0
+ + arize-phoenix==14.6.0
+ + arize-phoenix-client==2.4.0
+ + arize-phoenix-evals==3.0.0
+ + arize-phoenix-otel==0.15.0
+ + attrs==26.1.0
+ + authlib==1.7.0
+ + beautifulsoup4==4.14.3
+ + blinker==1.9.0
+ + boto3==1.40.61
+ + botocore==1.40.61
+ + cachetools==7.0.6
+ + certifi==2026.4.22
+ + cffi==2.0.0
+ + charset-normalizer==3.4.7
+ + click==8.3.3
+ + colorama==0.4.6
+ + colorlog==6.10.1
+ + cross-web==0.6.0
+ + cryptography==46.0.7
+ + dataclasses-json==0.6.7
+ + datasets==4.8.4
+ + dill==0.4.1
+ + distro==1.9.0
+ + dnspython==2.8.0
+ + email-validator==2.3.0
+ + et-xmlfile==2.0.0
+ + expandvars==1.1.2
+ + fastapi==0.136.0
+ + fastuuid==0.14.0
+ + filelock==3.29.0
+ + filetype==1.2.0
+ + flask==3.1.3
+ + frozenlist==1.8.0
+ + fsspec==2026.2.0
+ + googleapis-common-protos==1.74.0
+ + graphql-core==3.2.8
+ + greenlet==3.4.0
+ + grpc-interceptor==0.15.4
+ + grpcio==1.80.0
+ + h11==0.16.0
+ + hf-xet==1.4.3
+ + httpcore==1.0.9
+ + httptools==0.7.1
+ + httpx==0.28.1
+ + httpx-sse==0.4.3
+ + huggingface-hub==0.36.2
+ + idna==3.13
+ + importlib-metadata==8.7.1
+ + itsdangerous==2.2.0
+ + jinja2==3.1.6
+ + jiter==0.14.0
+ + jmespath==1.1.0
+ + joblib==1.5.3
+ + joserfc==1.6.4
+ + jsonpatch==1.33
+ + jsonpath-ng==1.8.0
+ + jsonpointer==3.1.1
+ + jsonschema==4.26.0
+ + jsonschema-specifications==2025.9.1
+ + langchain==1.2.15
+ + langchain-aws==1.1.0
+ + langchain-classic==1.0.4
+ + langchain-community==0.4.1
+ + langchain-core==1.3.0
+ + langchain-huggingface==1.2.2
+ + langchain-litellm==0.6.4
+ + langchain-milvus==0.3.3
+ + langchain-nvidia-ai-endpoints==1.2.1
+ + langchain-openai==1.2.0
+ + langchain-tavily==0.2.18
+ + langchain-text-splitters==1.1.2
+ + langgraph==1.1.9
+ + langgraph-checkpoint==4.0.2
+ + langgraph-prebuilt==1.0.10
+ + langgraph-sdk==0.3.13
+ + langsmith==0.7.33
+ + ldap3==2.9.1
+ + litellm==1.83.0
+ + mako==1.3.11
+ + markdown-it-py==4.0.0
+ + markupsafe==3.0.3
+ + marshmallow==3.26.2
+ + mcp==1.27.0
+ + mdurl==0.1.2
+ + multidict==6.7.1
+ + multiprocess==0.70.19
+ + mypy-extensions==1.1.0
+ + narwhals==2.20.0
+ + nest-asyncio2==1.7.2
+ + networkx==3.6.1
+ + numpy==2.4.4
+ + nvidia-nat==1.6.0
+ + nvidia-nat-atif==1.6.0
+ + nvidia-nat-core==1.6.0
+ + nvidia-nat-eval==1.6.0
+ + nvidia-nat-langchain==1.6.0
+ + nvidia-nat-mcp==1.6.0
+ + nvidia-nat-opentelemetry==1.6.0
+ + nvidia-nat-phoenix==1.6.0
+ + openai==2.32.0
+ + openevals==0.2.0
+ + openinference-instrumentation==0.1.47
+ + openinference-instrumentation-openai==0.1.45
+ + openinference-semantic-conventions==0.1.29
+ + openpyxl==3.1.5
+ + opentelemetry-api==1.41.0
+ + opentelemetry-exporter-otlp==1.41.0
+ + opentelemetry-exporter-otlp-proto-common==1.41.0
+ + opentelemetry-exporter-otlp-proto-grpc==1.41.0
+ + opentelemetry-exporter-otlp-proto-http==1.41.0
+ + opentelemetry-instrumentation==0.62b0
+ + opentelemetry-proto==1.41.0
+ + opentelemetry-sdk==1.41.0
+ + opentelemetry-semantic-conventions==0.62b0
+ + optuna==4.8.0
+ + orjson==3.11.8
+ + ormsgpack==1.12.2
+ + packaging==26.1
+ + pandas==2.3.3
+ + pip==26.0.1
+ + pkce==1.0.3
+ + pkginfo==1.12.1.2
+ + platformdirs==4.9.6
+ + plotly==6.7.0
+ + prometheus-client==0.25.0
+ + propcache==0.4.1
+ + protobuf==6.33.6
+ + psutil==7.2.2
+ + pyarrow==24.0.0
+ + pyasn1==0.6.3
+ + pycparser==3.0
+ + pydantic==2.13.3
+ + pydantic-core==2.46.3
+ + pydantic-settings==2.14.0
+ + pygments==2.20.0
+ + pyjwt==2.12.1
+ + pymilvus==2.6.12
+ + pystache==0.6.8
+ + python-dateutil==2.9.0.post0
+ + python-dotenv==1.2.2
+ + python-multipart==0.0.26
+ + pytz==2026.1.post1
+ + pyyaml==6.0.3
+ + referencing==0.37.0
+ + regex==2026.4.4
+ + requests==2.33.1
+ + requests-toolbelt==1.0.0
+ + rich==14.3.4
+ + rpds-py==0.30.0
+ + s3transfer==0.14.0
+ + scikit-learn==1.8.0
+ + scipy==1.17.1
+ + setuptools==82.0.1
+ + six==1.17.0
+ + sniffio==1.3.1
+ + soupsieve==2.8.3
+ + sqlalchemy==2.0.49
+ + sqlean-py==3.50.4.5
+ + sse-starlette==3.3.4
+ + starlette==0.52.1
+ + strawberry-graphql==0.314.3
+ + tabulate==0.10.0
+ + tenacity==9.1.4
+ + threadpoolctl==3.6.0
+ + tiktoken==0.12.0
+ + tokenizers==0.22.2
+ + tqdm==4.67.3
+ + typing-extensions==4.15.0
+ + typing-inspect==0.9.0
+ + typing-inspection==0.4.2
+ + tzdata==2026.1
+ + tzlocal==5.3.1
+ + urllib3==2.6.3
+ + uuid-utils==0.14.1
+ + uvicorn==0.46.0
+ + uvloop==0.22.1
+ + watchfiles==1.1.1
+ + websockets==16.0
+ + werkzeug==3.1.8
+ + wikipedia==1.4.0
+ + wrapt==1.17.3
+ + xxhash==3.6.0
+ + yarl==1.23.0
+ + zipp==3.23.1
+ + zstandard==0.25.0
+#+end_example
+
+#+begin_src shell :session *shell* :results output :exports both
+pixi init --format pixi
+pixi add sqlite
+cd ../
+#+end_src
+
+#+RESULTS:
+: ✔ Created /agentic-ai-bootcamp/solution/nemo_agent_toolkit/pixi.toml
+: =3.53.4,<4
+
+*** Action
+**** Assignment 3 - LLM workflow
+***** Hints                                                        :Text:
+- List tools
+  - [[../tutorial/org_notebook/01-nim_mcp.org::339]]
+  - [[https://developers.openai.com/api/reference/python/resources/chat/subresources/completions/methods/create][OpenAI API Reference - Create chat completion]]
+- Tool calling
+  - [[https://developers.openai.com/api/docs/guides/function-calling?api-mode=chat#function-tool-example][OpenAI API Reference - Function tool example]] 
+- Define graph
+  - [[../tutorial/org_notebook/02-langgraph.org::148]]
+  - [[../tutorial/org_notebook/02-langgraph.org::336]]
+  - [[../tutorial/org_notebook/03-nat.org::788]]
+- MCPHTTPCLIENT
+  - [[./mcp-server-invoice-test/mcp_http_client.py]]
+
+***** Todos                                                        :Text:
+- [[./llm_workflow/main.py::list tools]]
+#+begin_src python
+    ## TODO
+    ## list tools, format tools to openai function calling schema, get response from NVIDIA NIM/LLM
+    tools_list = await mcp_client.list_tools()
+
+    tools = [
+        {
+            "type": "function",
+            "function": {
+                "name": tool.name,
+                "description": tool.description,
+                "parameters": tool.inputSchema
+            }
+        }
+        for tool in tools_list
+    ] if tools_list else None
+
+    response = await openAI_client.chat.completions.create(
+        model=model_id,
+        messages=messages,
+        tools=tools,
+        tool_choice="auto" if tools else None
+    )
+
+    if response.choices[0].message.tool_calls is not None:
+        stop_reason = "tool_calls"
+    else:
+        stop_reason = response.choices[0].finish_reason
+#+end_src
+
+- [[./llm_workflow/main.py::Implement tool calling]]
+#+begin_src python
+            ## TODO
+            ## Implement tool calling
+            tool_name = tool_call.function.name
+            tool_args = json.loads(tool_call.function.arguments)
+            tool_result = await mcp_client.call_tool(tool_name, tool_args)
+            result = tool_result.content[0].text
+            tool_message = {
+                "role": "tool",
+                "tool_call_id": tool_call.id,
+                "name": tool_name,
+                "content": result
+            }
+#+end_src
+
+- [[./llm_workflow/main.py::Define nodes]]
+#+begin_src python
+    ## TODO
+    ## Define nodes and edges for graph
+    workflow.add_node("intent_classifier", intent_classifier)
+    workflow.add_node("qna_agent", qna_agent)
+    workflow.add_node("refund_agent", refund_agent)
+    workflow.add_node("compile_followup", compile_followup)
+
+    workflow.set_entry_point("intent_classifier")
+    workflow.add_edge("qna_agent", "compile_followup")
+    workflow.add_edge("refund_agent", "compile_followup")
+    workflow.add_edge("compile_followup", END)
+#+end_src
+
+- [[./llm_workflow/mcp_http_client.py::class MCPHTTPCLIENT]]
+#+begin_src python
+class MCPHTTPCLIENT:
+    def __init__(self, url):
+        ## TODO
+        ## initialize any required class variables
+        self.exit_stack = AsyncExitStack()
+        self.session = None
+        self._client = None
+        self.mcp_server_url = url
+
+    async def __aenter__(self):
+        await self.connect()
+        return self
+    
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        await self.cleanup()
+
+    async def connect(self):
+        ## TODO
+        ## connect to mcp server and initialize client session
+        self._client = streamablehttp_client(self.mcp_server_url)
+        self._receive, self._send, self._transport = await self.exit_stack.enter_async_context(self._client)
+        
+        session = ClientSession(self._receive, self._send)
+        self.session = await self.exit_stack.enter_async_context(session)
+        
+        await self.session.initialize()
+    
+    async def list_tools(self):
+        if not self.session:
+            raise RuntimeError("MCP client is not connected.")
+        response = await self.session.list_tools()
+        return response.tools
+
+    async def call_tool(self, tool_name: str, tool_args: dict):
+        if not self.session:
+            raise RuntimeError("MCP client is not connected.")
+        return await self.session.call_tool(tool_name, tool_args)
+
+    async def cleanup(self):
+        ## TODO
+        ## clean up resources
+        await self.exit_stack.aclose()
+        self.session = None
+        self._client = None
+#+end_src
+
+***** Testing                                             :Code:Protocol:
+- Start MCP server
+#+begin_src shell :session *shell* :results output :exports both
+pkill -f mcp-server-invoice
+export MCP_PORT=8000
+cd mcp-servers/invoice && uv run mcp-server-invoice &
+#+end_src
+
+#+RESULTS:
+: [1] 35843
+
+#+begin_src shell :session *shell* :results output :exports both
+cd llm-workflow-test/
+ls
+#+end_src
+
+#+RESULTS:
+: README.md  main.py  pyproject.toml  uv.lock
+
+#+begin_src shell :session *shell* :results output :exports both
+source ../../tutorial/org_notebook/.env
+uv run main.py \
+   --mcp-server-url http://localhost:$MCP_PORT/mcp \
+   --inf-url https://integrate.api.nvidia.com/v1 \
+   --inf-url-qna-agent https://integrate.api.nvidia.com/v1 \
+   --nvidia-api-key $NVIDIA_API_KEY
+cd ../
+#+end_src
+
+#+RESULTS:
+#+begin_example
+[1m[values][0m {'messages': [HumanMessage(content="my name is Aaron Mitchell and my number is +1 (204) 452-6452. I bought some songs by the artist Led Zeppelin that i'd like refunded", additional_kwargs={}, response_metadata={}, id='315dae07-0174-464e-ae24-1cc6c77a1795')]}
+/agentic-ai-bootcamp/solution/llm-workflow-test/.venv/lib/python3.13/site-packages/langchain_nvidia_ai_endpoints/chat_models.py:1232: UserWarning: The 'method' parameter is unnecessary and is ignored. The appropriate method will be chosen automatically depending on the type of schema provided.
+  warnings.warn(
+[1m[updates][0m {'intent_classifier': {'intent': 'REFUND'}}
+[1m[values][0m {'messages': [HumanMessage(content="my name is Aaron Mitchell and my number is +1 (204) 452-6452. I bought some songs by the artist Led Zeppelin that i'd like refunded", additional_kwargs={}, response_metadata={}, id='315dae07-0174-464e-ae24-1cc6c77a1795')], 'intent': 'REFUND'}
+[32mINFO[0m:     127.0.0.1:53310 - "[1mPOST /mcp HTTP/1.1[0m" [33m307 Temporary Redirect[0m
+[32mINFO[0m:     127.0.0.1:53310 - "[1mPOST /mcp/ HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     127.0.0.1:53310 - "[1mPOST /mcp HTTP/1.1[0m" [33m307 Temporary Redirect[0m
+[32mINFO[0m:     127.0.0.1:53310 - "[1mPOST /mcp/ HTTP/1.1[0m" [32m202 Accepted[0m
+[32mINFO[0m:     127.0.0.1:53318 - "[1mPOST /mcp HTTP/1.1[0m" [33m307 Temporary Redirect[0m
+[32mINFO[0m:     127.0.0.1:53318 - "[1mPOST /mcp/ HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     127.0.0.1:50040 - "[1mPOST /mcp HTTP/1.1[0m" [33m307 Temporary Redirect[0m
+[32mINFO[0m:     127.0.0.1:50040 - "[1mPOST /mcp/ HTTP/1.1[0m" [32m200 OK[0m
+[1m[updates][0m {'refund_agent': {'messages': [{'role': 'tool', 'tool_call_id': 'chatcmpl-tool-ab24679e4fac50b6', 'name': 'invoice_lookup', 'content': '[{"invoice_line_id": 267, "track_name": "How Many More Times", "artist_name": "Led Zeppelin", "purchase_date": "2009-08-06 00:00:00", "quantity_purchased": 1, "price_per_unit": 0.99}, {"invoice_line_id": 268, "track_name": "What Is And What Should Never Be", "artist_name": "Led Zeppelin", "purchase_date": "2009-08-06 00:00:00", "quantity_purchased": 1, "price_per_unit": 0.99}]'}, {'role': 'assistant', 'content': 'Which of the following purchases would you like to be refunded for?\n\n```json\n[\n  {\n    "invoice_line_id": 267,\n    "track_name": "How Many More Times",\n    "artist_name": "Led Zeppelin",\n    "purchase_date": "2009-08-06 00:00:00",\n    "quantity_purchased": 1,\n    "price_per_unit": 0.99\n  },\n  {\n    "invoice_line_id": 268,\n    "track_name": "What Is And What Should Never Be",\n    "artist_name": "Led Zeppelin",\n    "purchase_date": "2009-08-06 00:00:00",\n    "quantity_purchased": 1,\n    "price_per_unit": 0.99\n  }\n]\n```'}], 'followup': 'Which of the following purchases would you like to be refunded for?\n\n  invoice_line_id  track_name                        artist_name    purchase_date          quantity_purchased    price_per_unit\n-----------------  --------------------------------  -------------  -------------------  --------------------  ----------------\n              267  How Many More Times               Led Zeppelin   2009-08-06 00:00:00                     1              0.99\n              268  What Is And What Should Never Be  Led Zeppelin   2009-08-06 00:00:00                     1              0.99', 'invoice_line_ids': [267, 268]}}
+[1m[values][0m {'messages': [HumanMessage(content="my name is Aaron Mitchell and my number is +1 (204) 452-6452. I bought some songs by the artist Led Zeppelin that i'd like refunded", additional_kwargs={}, response_metadata={}, id='315dae07-0174-464e-ae24-1cc6c77a1795'), ToolMessage(content='[{"invoice_line_id": 267, "track_name": "How Many More Times", "artist_name": "Led Zeppelin", "purchase_date": "2009-08-06 00:00:00", "quantity_purchased": 1, "price_per_unit": 0.99}, {"invoice_line_id": 268, "track_name": "What Is And What Should Never Be", "artist_name": "Led Zeppelin", "purchase_date": "2009-08-06 00:00:00", "quantity_purchased": 1, "price_per_unit": 0.99}]', name='invoice_lookup', id='3ac76414-50e2-49a1-b5c4-eae8134a2d8e', tool_call_id='chatcmpl-tool-ab24679e4fac50b6'), AIMessage(content='Which of the following purchases would you like to be refunded for?\n\n```json\n[\n  {\n    "invoice_line_id": 267,\n    "track_name": "How Many More Times",\n    "artist_name": "Led Zeppelin",\n    "purchase_date": "2009-08-06 00:00:00",\n    "quantity_purchased": 1,\n    "price_per_unit": 0.99\n  },\n  {\n    "invoice_line_id": 268,\n    "track_name": "What Is And What Should Never Be",\n    "artist_name": "Led Zeppelin",\n    "purchase_date": "2009-08-06 00:00:00",\n    "quantity_purchased": 1,\n    "price_per_unit": 0.99\n  }\n]\n```', additional_kwargs={}, response_metadata={}, id='0fb5ab58-3f5b-4efe-900c-3c0da29a968f', tool_calls=[], invalid_tool_calls=[])], 'intent': 'REFUND', 'followup': 'Which of the following purchases would you like to be refunded for?\n\n  invoice_line_id  track_name                        artist_name    purchase_date          quantity_purchased    price_per_unit\n-----------------  --------------------------------  -------------  -------------------  --------------------  ----------------\n              267  How Many More Times               Led Zeppelin   2009-08-06 00:00:00                     1              0.99\n              268  What Is And What Should Never Be  Led Zeppelin   2009-08-06 00:00:00                     1              0.99', 'invoice_line_ids': [267, 268]}
+[1m[updates][0m {'compile_followup': None}
+{'messages': [HumanMessage(content="my name is Aaron Mitchell and my number is +1 (204) 452-6452. I bought some songs by the artist Led Zeppelin that i'd like refunded", additional_kwargs={}, response_metadata={}, id='315dae07-0174-464e-ae24-1cc6c77a1795'), ToolMessage(content='[{"invoice_line_id": 267, "track_name": "How Many More Times", "artist_name": "Led Zeppelin", "purchase_date": "2009-08-06 00:00:00", "quantity_purchased": 1, "price_per_unit": 0.99}, {"invoice_line_id": 268, "track_name": "What Is And What Should Never Be", "artist_name": "Led Zeppelin", "purchase_date": "2009-08-06 00:00:00", "quantity_purchased": 1, "price_per_unit": 0.99}]', name='invoice_lookup', id='3ac76414-50e2-49a1-b5c4-eae8134a2d8e', tool_call_id='chatcmpl-tool-ab24679e4fac50b6'), AIMessage(content='Which of the following purchases would you like to be refunded for?\n\n```json\n[\n  {\n    "invoice_line_id": 267,\n    "track_name": "How Many More Times",\n    "artist_name": "Led Zeppelin",\n    "purchase_date": "2009-08-06 00:00:00",\n    "quantity_purchased": 1,\n    "price_per_unit": 0.99\n  },\n  {\n    "invoice_line_id": 268,\n    "track_name": "What Is And What Should Never Be",\n    "artist_name": "Led Zeppelin",\n    "purchase_date": "2009-08-06 00:00:00",\n    "quantity_purchased": 1,\n    "price_per_unit": 0.99\n  }\n]\n```', additional_kwargs={}, response_metadata={}, id='0fb5ab58-3f5b-4efe-900c-3c0da29a968f', tool_calls=[], invalid_tool_calls=[])], 'intent': 'REFUND', 'followup': 'Which of the following purchases would you like to be refunded for?\n\n  invoice_line_id  track_name                        artist_name    purchase_date          quantity_purchased    price_per_unit\n-----------------  --------------------------------  -------------  -------------------  --------------------  ----------------\n              267  How Many More Times               Led Zeppelin   2009-08-06 00:00:00                     1              0.99\n              268  What Is And What Should Never Be  Led Zeppelin   2009-08-06 00:00:00                     1              0.99', 'invoice_line_ids': [267, 268]}
+#+end_example
+
+**** Assignment 4 - NeMo Agent Toolkit
+***** Hints                                                        :Text:
+- YAML configurations
+  - [[../tutorial/org_notebook/03-nat.org::464]]
+  - [[../tutorial/org_notebook/03-nat.org::802]]
+  - [[../tutorial/org_notebook/03-nat.org::1022]]
+***** Todos                                                        :Text:
+- [[./nemo_agent_toolkit/workflow.yaml]]
+#+begin_src bash
+llms:
+  nim_llm:
+    _type: nim
+    model_name: openai/gpt-oss-120b
+    temperature: 0.0
+    max_tokens: 1024
+    base_url: https://integrate.api.nvidia.com/v1
+    api_key: ${NVIDIA_API_KEY}
+
+function_groups:
+  ## TODO
+  invoice_mcp:
+      _type: mcp_client
+      server:
+        transport: streamable-http
+        url: "http://127.0.0.1:8000/mcp/"
+
+workflow:
+  ## TODO
+  _type: react_agent
+  tool_names: [invoice_mcp]
+  llm_name: nim_llm
+  verbose: true
+  retry_parsing_errors: true
+  parse_agent_response_max_retries: 3
+#+end_src
+***** Testing                                             :Code:Protocol:
+#+begin_src shell :session *shell* :results output :exports both
+cd nemo_agent_toolkit/
+ls
+#+end_src
+
+#+RESULTS:
+: README.md  pixi.lock  pyproject.toml  workflow.yaml
+: main.py    pixi.toml  uv.lock
+
+#+begin_src shell :session *shell* :results output :exports both
+pixi run uv run --env-file ../../tutorial/org_notebook/.env \
+nat run --config_file workflow.yaml \
+        --input "How many Led Zeppelin tracks did Aaron Mitchell purchase?"
+cd ../
+#+end_src
+
+#+RESULTS:
+#+begin_example
+/agentic-ai-bootcamp/solution/nemo_agent_toolkit/.venv/lib/python3.13/site-packages/authlib/_joserfc_helpers.py:8: AuthlibDeprecationWarning: authlib.jose module is deprecated, please use joserfc instead.
+It will be compatible before version 2.0.0.
+  from authlib.jose import ECKey
+2026-08-03 02:08:29 - INFO     - nat.cli.commands.start:192 - Starting NAT from config file: 'workflow.yaml'
+2026-08-03 02:08:29 - INFO     - nat.plugins.mcp.client.client_impl:614 - Configured to use MCP server at streamable-http:http://127.0.0.1:8000/mcp/
+[32mINFO[0m:     127.0.0.1:56750 - "[1mPOST /mcp/ HTTP/1.1[0m" [32m200 OK[0m
+2026-08-03 02:08:29 - INFO     - mcp.client.streamable_http:193 - Negotiated protocol version: 2025-11-25
+[32mINFO[0m:     127.0.0.1:56750 - "[1mPOST /mcp/ HTTP/1.1[0m" [32m202 Accepted[0m
+[32mINFO[0m:     127.0.0.1:56766 - "[1mPOST /mcp/ HTTP/1.1[0m" [32m200 OK[0m
+2026-08-03 02:08:29 - WARNING  - nat.builder.function_info:455 - Using provided input_schema for multi-argument function
+2026-08-03 02:08:29 - INFO     - nat.plugins.mcp.client.client_impl:663 - Adding tool invoice_refund to group
+2026-08-03 02:08:29 - WARNING  - nat.builder.function_info:455 - Using provided input_schema for multi-argument function
+2026-08-03 02:08:29 - INFO     - nat.plugins.mcp.client.client_impl:663 - Adding tool invoice_lookup to group
+
+Configuration Summary:
+--------------------
+Workflow Type: react_agent
+Number of Functions: 0
+Number of Function Groups: 1
+Number of LLMs: 1
+Number of Embedders: 0
+Number of Memory: 0
+Number of Object Stores: 0
+Number of Retrievers: 0
+Number of TTC Strategies: 0
+Number of Authentication Providers: 0
+
+2026-08-03 02:08:32 - INFO     - nat.runtime.session:329 - Shared workflow built (entry_function=None)
+2026-08-03 02:08:40 - INFO     - nat.plugins.langchain.agent.react_agent.agent:236 - 
+------------------------------
+[AGENT]
+[33mAgent input: How many Led Zeppelin tracks did Aaron Mitchell purchase?
+[36mAgent's thoughts: 
+Could you please provide Aaron Mitchell’s phone number so I can look up his purchase history?[39m
+------------------------------
+2026-08-03 02:08:40 - INFO     - nat.plugins.langchain.agent.react_agent.agent:326 - [AGENT] Agent produced direct answer without ReAct format, accepting as final answer
+2026-08-03 02:08:40 - INFO     - nat.front_ends.console.console_front_end_plugin:162 - --------------------------------------------------
+[32mWorkflow Result:
+Could you please provide Aaron Mitchell's phone number so I can look up his purchase history?[39m
+--------------------------------------------------
+#+end_example
+
+*** Milestones                                                       :Text:
+- Installed uv/pixi envs
+- Assignment 3
+  - MCP HTTP server + graph using LangGraph
+  - Found =None= response that failed the intent classifier
+    - Manually checked and re-classified intent
+- Assignment 4
+  - NeMo Agent Toolkit with YAML configuration
+
+* License
+This work is licensed under a [[https://creativecommons.org/licenses/by/4.0/][CC-BY-4.0]] licence.
+Most of the code was adapted from materials released by OpenACC-Standard.org under the Creative Commons Attribution 4.0 International License (CC BY 4.0).
+These materials include references to hardware and software developed by other entities; all applicable licensing and copyrights apply.

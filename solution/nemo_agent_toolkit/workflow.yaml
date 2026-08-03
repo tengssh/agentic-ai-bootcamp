@@ -1,0 +1,25 @@
+llms:
+  nim_llm:
+    _type: nim
+    model_name: openai/gpt-oss-120b
+    temperature: 0.0
+    max_tokens: 1024
+    base_url: https://integrate.api.nvidia.com/v1
+    api_key: ${NVIDIA_API_KEY}
+
+function_groups:
+  ## TODO
+  invoice_mcp:
+      _type: mcp_client
+      server:
+        transport: streamable-http
+        url: "http://127.0.0.1:8000/mcp/"
+
+workflow:
+  ## TODO
+  _type: react_agent
+  tool_names: [invoice_mcp]
+  llm_name: nim_llm
+  verbose: true
+  retry_parsing_errors: true
+  parse_agent_response_max_retries: 3
